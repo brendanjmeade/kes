@@ -121,4 +121,19 @@ def generate_event(m_current, event_history, current_time, mesh, config):
         "temporal_components": components,
     }
 
+    # After event is created, print diagnostics
+    if event is not None:
+        # Check moment budget
+        geom_released = np.sum(slip * config.element_area_m2)
+        seismic_released = event["M0"]
+
+        print(f"\nEvent {len(event_history) + 1}: M={event['magnitude']:.2f}")
+        print(f"  Geometric moment released: {geom_released:.2e} m³")
+        print(f"  Seismic moment released: {seismic_released:.2e} N·m")
+        print(f"  Total geom moment before: {components['total_geom_moment']:.2e} m³")
+        print(f"  Total geom moment after: {np.sum(m_updated):.2e} m³")
+        print(
+            f"  Depletion will be: C_r × M_cum^psi = {config.C_r:.2e} × {np.sum([e['M0'] for e in event_history] + [seismic_released]):.2e}^{config.psi:.3f}"
+        )
+
     return event, m_updated
