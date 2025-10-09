@@ -35,10 +35,9 @@ class Config:
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
-    M_min = 3.0  # Minimum magnitude
+    M_min = 5.5  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
-    # === TEMPORAL PROBABILITY ===
     # === TEMPORAL PROBABILITY ===
     # Loading coefficient (will be computed from moment balance)
     C_a = None  # Computed in simulator

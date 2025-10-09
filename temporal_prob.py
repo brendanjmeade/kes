@@ -10,58 +10,88 @@ def compute_C_a(config):
     """
     Compute loading coefficient from moment balance
 
-    C_a should convert geometric moment (m³) to event rate (year⁻¹)
-
-    Dimensional analysis:
-    [C_a] = year⁻¹ / m³
-
-    Physical reasoning:
-    - When total geometric moment reaches "characteristic" level, want λ ~ 1/recurrence_time
+    Strategy: Target a realistic average event rate, then work backwards
     """
-    # Target: ~10 events per 100 years = 0.1 events/year
-    target_rate = 0.1  # events per year
+    # Target: ~20 events per 1000 years = 0.02 events/year
+    # (This is more realistic for a 200km fault)
+    # target_rate = 0.02  # events per year
 
-    # Characteristic geometric moment after ~10 years of loading
-    # Total geometric moment rate = slip_rate × total_area
-    total_slip_rate = config.background_slip_rate_m_yr  # m/year
-    total_area = config.n_elements * config.element_area_m2  # m²
-    geom_moment_rate = total_slip_rate * total_area  # m³/year
+    # # Expected geometric moment after full earthquake cycle
+    # # Assume cycle time ~ 50 years
+    # cycle_time = 50.0  # years
 
-    # After 10 years
-    typical_geom_moment = geom_moment_rate * 10.0  # m³
+    # total_slip_rate = config.background_slip_rate_m_yr  # m/year
+    # total_area = config.n_elements * config.element_area_m2  # m²
+    # geom_moment_rate = total_slip_rate * total_area  # m³/year
 
-    # Set C_a so that this gives target rate
-    C_a = target_rate / typical_geom_moment
+    # # Geometric moment at end of cycle
+    # geom_moment_at_cycle_end = geom_moment_rate * cycle_time  # m³
+
+    # # We want: C_a × geom_moment_at_cycle_end ~ target_rate
+    # # But need to account for tanh saturation
+    # # If tanh(gamma × C_a × m) ~ 1, then need gamma × C_a × m ~ 2-3
+    # # So: C_a = 2.5 / (gamma × geom_moment_at_cycle_end)
+
+    # C_a = 2.5 / (config.gamma_temporal * geom_moment_at_cycle_end)
+
+    # print(f"  Geometric moment rate: {geom_moment_rate:.2e} m³/year")
+    # print(f"  Cycle time: {cycle_time} years")
+    # print(f"  Geom moment at cycle end: {geom_moment_at_cycle_end:.2e} m³")
+
+    # Expected geometric moment after long time (1000 years)
+    target_rate_baseline = 0.001
+    long_time = 1000.0  # years
+
+    total_slip_rate = config.background_slip_rate_m_yr
+    total_area = config.n_elements * config.element_area_m2
+    geom_moment_rate = total_slip_rate * total_area
+
+    geom_moment_long_time = geom_moment_rate * long_time
+
+    # We want: tanh(gamma × C_a × m) ~ target_rate_baseline when m is at long_time value
+    # For small arguments: tanh(x) ≈ x
+    # So: gamma × C_a × m ~ target_rate_baseline
+    # C_a = target_rate_baseline / (gamma × m)
+
+    C_a = target_rate_baseline / (config.gamma_temporal * geom_moment_long_time)
 
     print(f"  Geometric moment rate: {geom_moment_rate:.2e} m³/year")
-    print(f"  Typical geom moment (10 yr): {typical_geom_moment:.2e} m³")
+    print(f"  Long-time geom moment: {geom_moment_long_time:.2e} m³")
+    print(f"  Target baseline rate: {target_rate_baseline} events/year")
 
     return C_a
 
 
 def compute_C_r(config, C_a):
     """
-    Compute depletion coefficient from theory
+    Compute depletion coefficient
 
-    C_r should convert seismic moment (N·m) to rate suppression (year⁻¹)
-
-    From discussion: recovery time ~ 20 years after typical event
+    Strategy: A large event cluster should suppress activity for ~20-50 years
     """
-    # Assumptions
-    tau_recovery_years = 20.0
-    M_char = magnitude_to_seismic_moment(7.5)  # N·m
+    # Recovery time after major event
+    tau_recovery_years = 30.0
 
-    # Want: C_r × M_char^psi ≈ C_a × typical_geom_moment
-    # So that depletion balances accumulation
+    # Characteristic event magnitude
+    M_char_magnitude = 7.0
+    M_char = magnitude_to_seismic_moment(M_char_magnitude)  # N·m
 
+    # After this event, want depletion to balance accumulation for tau_recovery years
+    # Accumulation during recovery: C_a × (geom_moment_rate × tau_recovery)
     geom_moment_rate = (
         config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
     )
-    typical_geom_moment = geom_moment_rate * tau_recovery_years
+    accumulated_during_recovery = geom_moment_rate * tau_recovery_years
 
-    C_r = (C_a * typical_geom_moment) / (M_char**config.psi)
+    # Depletion term should roughly equal accumulation during recovery
+    # C_r × M_char^psi ~ C_a × accumulated_during_recovery
 
-    print(f"  M_char: {M_char:.2e} N·m")
+    C_r = (C_a * accumulated_during_recovery) / (M_char**config.psi)
+
+    # Scale up by factor to make depletion more effective
+    C_r *= 5.0  # Empirical adjustment
+
+    print(f"  M_char: M{M_char_magnitude} = {M_char:.2e} N·m")
+    print(f"  Recovery time: {tau_recovery_years} years")
 
     return C_r
 

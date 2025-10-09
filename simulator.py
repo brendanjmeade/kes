@@ -55,7 +55,8 @@ def run_simulation(config):
     print(f"Time steps: {config.n_time_steps}")
 
     # Simulation loop
-    for i, current_time in enumerate(tqdm(times, desc="Simulating")):
+    for i, current_time in enumerate(times):
+        # for i, current_time in enumerate(tqdm(times, desc="Simulating")):
         # Accumulate moment
         m_current = accumulate_moment(
             m_current, slip_rate, config.element_area_m2, dt_years
@@ -69,7 +70,7 @@ def run_simulation(config):
         if event is not None:
             event_history.append(event)
             print(
-                f"\nEvent {len(event_history)}: t={current_time:.2f} yr, M={event['magnitude']:.2f}"
+                f"Event {len(event_history)}: t={current_time:.2f} yr, M={event['magnitude']:.2f}"
             )
 
         # Save snapshots (every 1 year)

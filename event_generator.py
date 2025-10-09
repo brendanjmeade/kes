@@ -34,6 +34,20 @@ def generate_event(m_current, event_history, current_time, mesh, config):
     event : dict with event properties, or None if no event
     m_updated : updated moment distribution
     """
+    # from temporal_prob import temporal_probability
+
+    # # Compute temporal probability
+    # lambda_t, components = temporal_probability(
+    #     m_current, event_history, current_time, config
+    # )
+
+    # # Bernoulli draw: does event occur?
+    # dt_years = config.time_step_days / 365.25
+    # p_event = lambda_t * dt_years
+
+    # if np.random.random() > p_event:
+    #     return None, m_current  # No event
+
     from temporal_prob import temporal_probability
 
     # Compute temporal probability
@@ -43,7 +57,21 @@ def generate_event(m_current, event_history, current_time, mesh, config):
 
     # Bernoulli draw: does event occur?
     dt_years = config.time_step_days / 365.25
+
+    # IMPORTANT: lambda_t is event rate (events/year)
+    # But it's already scaled by tanh to be between [lambda_min, lambda_max]
+    # So probability per time step is:
     p_event = lambda_t * dt_years
+
+    # Additional check: don't let p_event exceed reasonable value
+    p_event = min(p_event, 0.1)  # Max 10% chance per time step
+
+    # DEBUG OUTPUT
+    if current_time > 0 and int(current_time * 10) % 100 == 0:  # Every 10 years
+        print(
+            f"t={current_time:.1f}: λ={lambda_t:.4f}/yr, p_step={p_event:.6f}, "
+            f"Σm={components['total_geom_moment']:.2e}"
+        )
 
     if np.random.random() > p_event:
         return None, m_current  # No event

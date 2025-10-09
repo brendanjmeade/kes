@@ -144,39 +144,40 @@ def plot_cumulative_slip_map(results, config):
 
     to_plot = np.log10(slip_grid.T)
     min_val = np.nanmin(to_plot)
-    to_plot[~np.isfinite(to_plot)] = min_val - 1
+    to_plot[~np.isfinite(to_plot)] = min_val
 
     im = ax.imshow(
-        np.log10(to_plot),
+        to_plot,
         origin="upper",
         aspect="auto",
         extent=[0, config.fault_length_km, 0, config.fault_depth_km],
         cmap="hot_r",
     )
+    ax.invert_yaxis()
 
-    ax.set_xlabel("Along-strike distance (km)", fontsize=12)
-    ax.set_ylabel("Depth (km)", fontsize=12)
+    ax.set_xlabel("$x$ (km)", fontsize=12)
+    ax.set_ylabel("$d$ (km)", fontsize=12)
     ax.set_title("Cumulative coseismic clip", fontsize=12)
 
     cbar = plt.colorbar(im, ax=ax)
     cbar.set_label("slip (m)", fontsize=11)
 
-    # Mark hypocenters
-    hypo_x = [e["hypocenter_x_km"] for e in event_history]
-    hypo_z = [e["hypocenter_z_km"] for e in event_history]
-    ax.scatter(
-        hypo_x,
-        hypo_z,
-        c="cyan",
-        s=30,
-        marker="*",
-        edgecolors="black",
-        linewidth=0.5,
-        alpha=0.7,
-        label="Hypocenters",
-    )
+    # # Mark hypocenters
+    # hypo_x = [e["hypocenter_x_km"] for e in event_history]
+    # hypo_z = [e["hypocenter_z_km"] for e in event_history]
+    # ax.scatter(
+    #     hypo_x,
+    #     hypo_z,
+    #     c="cyan",
+    #     s=5,
+    #     marker=".",
+    #     edgecolors="black",
+    #     linewidth=0.25,
+    #     alpha=0.7,
+    #     label="Hypocenters",
+    # )
 
-    ax.legend()
+    # ax.legend()
     plt.tight_layout()
 
     # Save
