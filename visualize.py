@@ -140,22 +140,26 @@ def plot_cumulative_slip_map(results, config):
     # Reshape to 2D
     slip_grid = cumulative_slip.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(12, 2))
+
+    to_plot = np.log10(slip_grid.T)
+    min_val = np.nanmin(to_plot)
+    to_plot[~np.isfinite(to_plot)] = min_val - 1
 
     im = ax.imshow(
-        slip_grid.T,
-        origin="lower",
+        np.log10(to_plot),
+        origin="upper",
         aspect="auto",
         extent=[0, config.fault_length_km, 0, config.fault_depth_km],
-        cmap="hot",
+        cmap="hot_r",
     )
 
     ax.set_xlabel("Along-strike distance (km)", fontsize=12)
     ax.set_ylabel("Depth (km)", fontsize=12)
-    ax.set_title("Cumulative Coseismic Slip", fontsize=14, fontweight="bold")
+    ax.set_title("Cumulative coseismic clip", fontsize=12)
 
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label("Slip (m)", fontsize=11)
+    cbar.set_label("slip (m)", fontsize=11)
 
     # Mark hypocenters
     hypo_x = [e["hypocenter_x_km"] for e in event_history]
@@ -177,7 +181,7 @@ def plot_cumulative_slip_map(results, config):
 
     # Save
     output_path = Path(config.output_dir) / "cumulative_slip.png"
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.savefig(output_path, dpi=500, bbox_inches="tight")
     print(f"Saved: {output_path}")
 
     return fig
