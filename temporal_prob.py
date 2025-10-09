@@ -3,6 +3,7 @@ Temporal probability with loading, Omori, and depletion
 """
 
 import numpy as np
+from moment import magnitude_to_seismic_moment  # Move import to top
 
 
 def compute_C_a(config):
@@ -30,9 +31,6 @@ def compute_C_r(config, C_a):
     # Assumptions
     tau_recovery_years = 20.0
     M_char = magnitude_to_seismic_moment(7.5)  # Characteristic large event
-
-    # Import from moment.py
-    from moment import magnitude_to_seismic_moment
 
     C_r = (C_a * tau_recovery_years * config.total_moment_rate) / (M_char**config.psi)
 
