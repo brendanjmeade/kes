@@ -35,18 +35,19 @@ class Config:
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
-    M_min = 5.0  # Minimum magnitude
+    M_min = 3.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
+    # === TEMPORAL PROBABILITY ===
     # === TEMPORAL PROBABILITY ===
     # Loading coefficient (will be computed from moment balance)
     C_a = None  # Computed in simulator
 
     # Omori parameters
     omori_p = 1.0  # Universal exponent
-    omori_c_days = 0.1  # Cutoff time
+    omori_c_days = 1.0  # Changed from 0.1 to 1.0
     omori_alpha_beta = 0.8  # Productivity scaling
-    omori_beta_0 = 1.0  # Base productivity
+    omori_beta_0 = 10.0  # Increased from 1.0 to 10.0
 
     # Depletion parameters
     psi = 2.0 / 3.0  # Sublinear exponent (from theory)
@@ -54,9 +55,8 @@ class Config:
 
     # Wrapping function parameters
     lambda_min = 1e-6  # Minimum event rate
-    lambda_max = 0.05  # Maximum event rate
-    gamma_temporal = 1.0  # Scaling for tanh
-
+    lambda_max = 1.0  # Increased from 0.05 to 1.0
+    gamma_temporal = 1.0  # Keep at 1.0 since we rescaled C_a
     # === GUTENBERG-RICHTER ===
     b_value = 1.0
 
