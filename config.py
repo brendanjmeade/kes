@@ -35,7 +35,7 @@ class Config:
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
-    M_min = 5.5  # Minimum magnitude
+    M_min = 3.5  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
     # === TEMPORAL PROBABILITY ===
@@ -46,7 +46,7 @@ class Config:
     omori_p = 1.0  # Universal exponent
     omori_c_days = 1.0  # Changed from 0.1 to 1.0
     omori_alpha_beta = 0.8  # Productivity scaling
-    omori_beta_0 = 10.0  # Increased from 1.0 to 10.0
+    omori_beta_0 = 1e-1  # Increased from 1.0 to 10.0
 
     # Depletion parameters
     psi = 2.0 / 3.0  # Sublinear exponent (from theory)
@@ -60,7 +60,7 @@ class Config:
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 1000.0
+    duration_years = 3000.0
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility

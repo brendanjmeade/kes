@@ -38,9 +38,30 @@ def compute_C_a(config):
     # print(f"  Cycle time: {cycle_time} years")
     # print(f"  Geom moment at cycle end: {geom_moment_at_cycle_end:.2e} m³")
 
-    # Expected geometric moment after long time (1000 years)
-    target_rate_baseline = 0.001
-    long_time = 1000.0  # years
+    # # Expected geometric moment after long time (1000 years)
+    # target_rate_baseline = 0.001
+    # long_time = 1000.0  # years
+
+    # total_slip_rate = config.background_slip_rate_m_yr
+    # total_area = config.n_elements * config.element_area_m2
+    # geom_moment_rate = total_slip_rate * total_area
+
+    # geom_moment_long_time = geom_moment_rate * long_time
+
+    # # We want: tanh(gamma × C_a × m) ~ target_rate_baseline when m is at long_time value
+    # # For small arguments: tanh(x) ≈ x
+    # # So: gamma × C_a × m ~ target_rate_baseline
+    # # C_a = target_rate_baseline / (gamma × m)
+
+    # C_a = target_rate_baseline / (config.gamma_temporal * geom_moment_long_time)
+
+    # print(f"  Geometric moment rate: {geom_moment_rate:.2e} m³/year")
+    # print(f"  Long-time geom moment: {geom_moment_long_time:.2e} m³")
+    # print(f"  Target baseline rate: {target_rate_baseline} events/year")
+
+    target_rate_baseline = 0.01  # Increased from 0.001
+
+    long_time = 1000.0
 
     total_slip_rate = config.background_slip_rate_m_yr
     total_area = config.n_elements * config.element_area_m2
@@ -48,15 +69,8 @@ def compute_C_a(config):
 
     geom_moment_long_time = geom_moment_rate * long_time
 
-    # We want: tanh(gamma × C_a × m) ~ target_rate_baseline when m is at long_time value
-    # For small arguments: tanh(x) ≈ x
-    # So: gamma × C_a × m ~ target_rate_baseline
-    # C_a = target_rate_baseline / (gamma × m)
-
     C_a = target_rate_baseline / (config.gamma_temporal * geom_moment_long_time)
 
-    print(f"  Geometric moment rate: {geom_moment_rate:.2e} m³/year")
-    print(f"  Long-time geom moment: {geom_moment_long_time:.2e} m³")
     print(f"  Target baseline rate: {target_rate_baseline} events/year")
 
     return C_a
@@ -141,6 +155,7 @@ def temporal_probability(m_current, event_history, current_time, config):
     # The issue is that r_total needs to be O(1) for tanh to work properly
     scaled_r = config.gamma_temporal * r_total
 
+    # TODO: Why am I doing tanh in time?
     if scaled_r > 0:
         lambda_t = np.tanh(scaled_r)
     else:
