@@ -59,7 +59,8 @@ def compute_C_a(config):
     # print(f"  Long-time geom moment: {geom_moment_long_time:.2e} m³")
     # print(f"  Target baseline rate: {target_rate_baseline} events/year")
 
-    target_rate_baseline = 0.01  # Increased from 0.001
+    target_rate_baseline = 0.1  # Increased from 0.001
+    target_rate_baseline = 1.0  # Increased from 0.001
 
     long_time = 1000.0
 

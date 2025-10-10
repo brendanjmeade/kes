@@ -35,7 +35,7 @@ class Config:
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
-    M_min = 3.5  # Minimum magnitude
+    M_min = 5.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
     # === TEMPORAL PROBABILITY ===
@@ -60,7 +60,7 @@ class Config:
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 3000.0
+    duration_years = 1000.0
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility
