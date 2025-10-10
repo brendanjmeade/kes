@@ -541,6 +541,6 @@ def plot_all_diagnostics(results, config):
     plot_event_rate_evolution(results, config)
 
     # Animation (optional, can take time)
-    create_moment_animation(results, config)
+    # create_moment_animation(results, config)
 
     print("\nAll plots generated!")
