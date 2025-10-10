@@ -305,17 +305,17 @@ def plot_magnitude_time_series(results, config):
         magnitudes,
         c=magnitudes,
         cmap="YlOrRd",
-        s=30,
+        s=3 * np.array(magnitudes) ** 2.0,
         alpha=1.0,
         edgecolors="black",
         linewidth=0.5,
         zorder=10,
     )
 
-    ax.set_xlabel("t (years)", fontsize=12)
-    ax.set_ylabel("M", fontsize=12)
+    ax.set_xlabel("$t$ (years)", fontsize=12)
+    ax.set_ylabel("$M$", fontsize=12)
     ax.set_title(
-        f"Earthquake Magnitude Time Series ({len(event_history)} events)",
+        f"{len(event_history)} events",
         fontsize=14,
         fontweight="bold",
     )
@@ -482,33 +482,36 @@ def create_moment_animation(results, config):
 
     # Determine color scale from all snapshots
     all_moments = np.concatenate([m.flatten() for m in moment_snapshots])
+    # all_moments = np.sign(all_moments) * np.abs(all_moments) ** 0.2
     vmin, vmax = np.percentile(all_moments, [1, 99])
+
+    m_grid = np.sign(m_grid) * np.abs(m_grid) ** 0.5
 
     im = ax.imshow(
         m_grid.T,
         origin="lower",
-        aspect="auto",
+        aspect="equal",
         extent=[0, config.fault_length_km, 0, config.fault_depth_km],
-        cmap="viridis",
-        vmin=vmin,
-        vmax=vmax,
+        cmap="RdYlBu_r",
+        vmin=-5e3,
+        vmax=5e3,
     )
 
-    ax.set_xlabel("Along-strike distance (km)", fontsize=12)
-    ax.set_ylabel("Depth (km)", fontsize=12)
-    title = ax.set_title(
-        f"Moment Distribution: t = 0.0 years", fontsize=14, fontweight="bold"
-    )
+    ax.set_xlabel("$x$ (km)", fontsize=12)
+    ax.set_ylabel("$d$ (km)", fontsize=12)
+    title = ax.set_title("$t$ = 0.0 years", fontsize=12)
 
-    cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label("Geometric Moment", fontsize=11)
+    # cbar = plt.colorbar(im, ax=ax)
+    # cbar.set_label("Geometric Moment", fontsize=11)
 
     def update(frame):
         m_grid = moment_snapshots[frame].reshape(
             mesh["n_along_strike"], mesh["n_down_dip"]
         )
+        m_grid = np.sign(m_grid) * np.abs(m_grid) ** 0.5
+
         im.set_array(m_grid.T)
-        title.set_text(f"Moment Distribution: t = {snapshot_times[frame]:.1f} years")
+        title.set_text(f"$t$ = {snapshot_times[frame]:.1f} years")
         return [im, title]
 
     anim = FuncAnimation(
@@ -541,6 +544,6 @@ def plot_all_diagnostics(results, config):
     plot_event_rate_evolution(results, config)
 
     # Animation (optional, can take time)
-    # create_moment_animation(results, config)
+    create_moment_animation(results, config)
 
     print("\nAll plots generated!")

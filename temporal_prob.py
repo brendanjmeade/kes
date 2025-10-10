@@ -1,178 +1,133 @@
 """
 Temporal probability with loading, Omori, and depletion
+Using exponential formulation from statistical mechanics
 """
 
 import numpy as np
-from moment import magnitude_to_seismic_moment
+from moment import magnitude_to_seismic_moment, seismic_moment_to_magnitude
 
 
-def compute_C_a(config):
+def compute_exponential_rate_parameters(config):
     """
-    Compute loading coefficient from moment balance
+    Compute lambda_0, beta, and C_a for exponential rate equation
 
-    Strategy: Target a realistic average event rate, then work backwards
+    λ(t) = λ₀ × exp(β × r_total)
+
+    Derives all parameters from moment balance requirement
     """
-    # Target: ~20 events per 1000 years = 0.02 events/year
-    # (This is more realistic for a 200km fault)
-    # target_rate = 0.02  # events per year
+    print("DEBUG: Using NEW version with r_typical = 1.0")
+    # === Step 1: Required average rate from moment balance ===
 
-    # # Expected geometric moment after full earthquake cycle
-    # # Assume cycle time ~ 50 years
-    # cycle_time = 50.0  # years
-
-    # total_slip_rate = config.background_slip_rate_m_yr  # m/year
-    # total_area = config.n_elements * config.element_area_m2  # m²
-    # geom_moment_rate = total_slip_rate * total_area  # m³/year
-
-    # # Geometric moment at end of cycle
-    # geom_moment_at_cycle_end = geom_moment_rate * cycle_time  # m³
-
-    # # We want: C_a × geom_moment_at_cycle_end ~ target_rate
-    # # But need to account for tanh saturation
-    # # If tanh(gamma × C_a × m) ~ 1, then need gamma × C_a × m ~ 2-3
-    # # So: C_a = 2.5 / (gamma × geom_moment_at_cycle_end)
-
-    # C_a = 2.5 / (config.gamma_temporal * geom_moment_at_cycle_end)
-
-    # print(f"  Geometric moment rate: {geom_moment_rate:.2e} m³/year")
-    # print(f"  Cycle time: {cycle_time} years")
-    # print(f"  Geom moment at cycle end: {geom_moment_at_cycle_end:.2e} m³")
-
-    # # Expected geometric moment after long time (1000 years)
-    # target_rate_baseline = 0.001
-    # long_time = 1000.0  # years
-
-    # total_slip_rate = config.background_slip_rate_m_yr
-    # total_area = config.n_elements * config.element_area_m2
-    # geom_moment_rate = total_slip_rate * total_area
-
-    # geom_moment_long_time = geom_moment_rate * long_time
-
-    # # We want: tanh(gamma × C_a × m) ~ target_rate_baseline when m is at long_time value
-    # # For small arguments: tanh(x) ≈ x
-    # # So: gamma × C_a × m ~ target_rate_baseline
-    # # C_a = target_rate_baseline / (gamma × m)
-
-    # C_a = target_rate_baseline / (config.gamma_temporal * geom_moment_long_time)
-
-    # print(f"  Geometric moment rate: {geom_moment_rate:.2e} m³/year")
-    # print(f"  Long-time geom moment: {geom_moment_long_time:.2e} m³")
-    # print(f"  Target baseline rate: {target_rate_baseline} events/year")
-
-    target_rate_baseline = 0.1  # Increased from 0.001
-    target_rate_baseline = 1.0  # Increased from 0.001
-
-    long_time = 1000.0
-
-    total_slip_rate = config.background_slip_rate_m_yr
-    total_area = config.n_elements * config.element_area_m2
-    geom_moment_rate = total_slip_rate * total_area
-
-    geom_moment_long_time = geom_moment_rate * long_time
-
-    C_a = target_rate_baseline / (config.gamma_temporal * geom_moment_long_time)
-
-    print(f"  Target baseline rate: {target_rate_baseline} events/year")
-
-    return C_a
-
-
-def compute_C_a_from_moment_balance(config):
-    """
-    Compute C_a from moment balance requirement
-
-    Ensures long-term average seismic release = tectonic loading
-    """
-    from moment import magnitude_to_seismic_moment
-
-    # Tectonic loading rate (geometric moment)
     geom_loading_rate = (
         config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
     )  # m³/year
-
-    # Convert to seismic moment rate
     seismic_loading_rate = config.shear_modulus_Pa * geom_loading_rate  # N·m/year
 
-    # Average seismic moment per event (from G-R distribution)
-    # For simplicity, approximate as dominated by large events
-    M0_min = magnitude_to_seismic_moment(config.M_min)
+    # Average M0 per event (dominated by large events in G-R)
     M0_max = magnitude_to_seismic_moment(config.M_max)
-
-    # For b=1, average is roughly M0_max / 2.5
-    # For other b-values, this changes - could do full integral
-    b = config.b_value
-    if b == 1.0:
-        M0_avg = M0_max / 2.5
-    else:
-        # Approximate for other b-values
-        # Higher b → more small events → lower average
-        M0_avg = M0_max / (1.5 + b)
-
-    print(f"  Average M0 per event: {M0_avg:.2e} N·m")
-    # print(f"  Corresponds to M ~{seismic_moment_to_magnitude(M0_avg):.1f}")
+    M0_avg = M0_max / (1.5 + config.b_value)
 
     # Required average event rate for moment balance
     lambda_required = seismic_loading_rate / M0_avg  # events/year
 
-    print(f"  Required average event rate: {lambda_required:.4f} events/year")
+    print(f"\n=== Exponential Rate Parameters (from moment balance) ===")
+    print(f"  Geometric loading rate: {geom_loading_rate:.2e} m³/year")
+    print(f"  Seismic loading rate: {seismic_loading_rate:.2e} N·m/year")
+    print(f"  Average event magnitude: M {seismic_moment_to_magnitude(M0_avg):.1f}")
+    print(f"  Average event M0: {M0_avg:.2e} N·m")
+    print(f"  Required average rate: {lambda_required:.4f} events/year")
     print(f"  = 1 event per {1 / lambda_required:.1f} years")
 
-    # Typical accumulated geometric moment in steady state
-    # Assume events occur when accumulated moment reaches some level
-    # Estimate: after ~50 years of accumulation between major events
-    typical_recurrence = 50.0  # years (adjustable)
-    typical_geom_moment = geom_loading_rate * typical_recurrence  # m³
+    # === Step 2: Estimate typical r_total ===
 
-    # Set C_a so that this gives the required rate
-    # We want: tanh(gamma × C_a × m_typical) ~ lambda_required
-    # For tanh linear regime: gamma × C_a × m_typical ~ lambda_required
-    # So: C_a = lambda_required / (gamma × m_typical)
+    # In steady state, moment accumulates for approximately half the recurrence interval
+    recurrence_interval = 1.0 / lambda_required  # years
+    typical_accumulation_time = recurrence_interval / 2  # years
+    typical_geom_moment = geom_loading_rate * typical_accumulation_time  # m³
 
-    C_a = lambda_required / (config.gamma_temporal * typical_geom_moment)
+    # CRITICAL: Make r_typical ~ O(1) so beta is reasonable
+    # We'll set C_a such that C_a × typical_geom_moment ~ 1
+    r_typical = 1.0  # Target dimensionless value
 
-    print(f"  C_a = {C_a:.2e}")
-    print(f"  Typical geom moment: {typical_geom_moment:.2e} m³")
+    print(f"  Typical recurrence interval: {recurrence_interval:.1f} years")
+    print(f"  Mid-cycle accumulated moment: {typical_geom_moment:.2e} m³")
+    print(f"  Target typical r_total: {r_typical:.2e}")
 
-    return C_a
+    # === Step 3: Choose beta for reasonable sensitivity ===
 
+    # We want: exp(beta × r_typical) ~ amplification_factor
+    # With r_typical = 1, this becomes: exp(beta) ~ amplification_factor
+    # So: beta = ln(amplification_factor)
+    amplification_factor = 10.0
 
-def compute_C_r(config, C_a):
-    """
-    Compute depletion coefficient
+    beta = np.log(amplification_factor)
 
-    Strategy: A large event cluster should suppress activity for ~20-50 years
-    """
-    # Recovery time after major event
-    tau_recovery_years = 30.0
+    print(f"  Target amplification at typical state: {amplification_factor:.0f}×")
+    print(f"  Beta: {beta:.2f}")
 
-    # Characteristic event magnitude
-    M_char_magnitude = 7.0
-    M_char = magnitude_to_seismic_moment(M_char_magnitude)  # N·m
+    # === Step 4: Solve for lambda_0 ===
 
-    # After this event, want depletion to balance accumulation for tau_recovery years
-    # Accumulation during recovery: C_a × (geom_moment_rate × tau_recovery)
-    geom_moment_rate = (
-        config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
+    # At typical state: lambda_required = lambda_0 × exp(beta × r_typical)
+    # Therefore: lambda_0 = lambda_required / amplification_factor
+
+    lambda_0 = lambda_required / amplification_factor
+
+    print(f"  Lambda_0 (background rate): {lambda_0:.6f} events/year")
+    print(f"  = 1 event per {1 / lambda_0:.0f} years when r_total = 0")
+
+    # === Step 5: Compute C_a to achieve r_typical at mid-cycle ===
+
+    # We want: C_a × typical_geom_moment = r_typical
+    C_a = r_typical / typical_geom_moment
+
+    print(f"  C_a: {C_a:.2e} (m³·year)⁻¹")
+    print(
+        f"  At mid-cycle: r_accumulation = C_a × {typical_geom_moment:.2e} = {r_typical:.2e}"
     )
-    accumulated_during_recovery = geom_moment_rate * tau_recovery_years
 
-    # Depletion term should roughly equal accumulation during recovery
-    # C_r × M_char^psi ~ C_a × accumulated_during_recovery
+    # === Step 6: Compute C_r from depletion theory ===
 
-    C_r = (C_a * accumulated_during_recovery) / (M_char**config.psi)
+    tau_recovery_years = 30.0
+    M_char_magnitude = config.M_max - 1.0
+    M_char = magnitude_to_seismic_moment(M_char_magnitude)
 
-    # Scale up by factor to make depletion more effective
-    C_r *= 5.0  # Empirical adjustment
+    accumulated_during_recovery = geom_loading_rate * tau_recovery_years
 
-    print(f"  M_char: M{M_char_magnitude} = {M_char:.2e} N·m")
-    print(f"  Recovery time: {tau_recovery_years} years")
+    C_r_base = (C_a * accumulated_during_recovery) / (M_char**config.psi)
+    C_r = C_r_base * 5.0
 
-    return C_r
+    print(f"\n=== Depletion Parameters ===")
+    print(f"  Characteristic event: M {M_char_magnitude:.1f} = {M_char:.2e} N·m")
+    print(f"  Recovery timescale: {tau_recovery_years} years")
+    print(f"  C_r: {C_r:.2e} (N·m)^(-{config.psi:.3f}) year⁻¹")
+
+    # === Verification ===
+
+    print(f"\n=== Verification ===")
+    print(f"  When r_total = 0: λ = {lambda_0:.6f}/yr")
+    print(
+        f"  When r_total = {r_typical:.2f}: λ = {lambda_0 * np.exp(beta * r_typical):.6f}/yr"
+    )
+    print(f"  Target average rate: {lambda_required:.6f}/yr")
+
+    if abs(lambda_0 * np.exp(beta * r_typical) - lambda_required) < 0.0001:
+        print(f"  ✓ Rates match!")
+    else:
+        print(f"  ✗ WARNING: Rates don't match!")
+
+    print(f"  Moment balance: {seismic_loading_rate:.2e} N·m/yr in")
+    print(f"                = {lambda_required:.6f}/yr × {M0_avg:.2e} N·m out")
+
+    return lambda_0, beta, C_a, C_r
 
 
 def temporal_probability(m_current, event_history, current_time, config):
     """
-    Compute λ(t) - temporal event rate
+    Compute λ(t) - temporal event rate using exponential formulation
+
+    λ(t) = λ₀ × exp(β × r_total)
+
+    where r_total = r_accumulation + r_omori + r_depletion
 
     Returns:
     --------
@@ -187,14 +142,14 @@ def temporal_probability(m_current, event_history, current_time, config):
     r_omori = 0.0
     for event in event_history:
         dt_days = (current_time - event["time"]) * 365.25
-        if dt_days > 0 and dt_days < 365.25 * 10:  # Only include last 10 years
+        if 0 < dt_days < 365.25 * 10:  # Only include last 10 years
             # Productivity scales with magnitude
-            beta = config.omori_beta_0 * 10 ** (
+            beta_omori = config.omori_beta_0 * 10 ** (
                 config.omori_alpha_beta * event["magnitude"]
             )
 
             # Omori decay
-            r_omori += beta / (dt_days + config.omori_c_days) ** config.omori_p
+            r_omori += beta_omori / (dt_days + config.omori_c_days) ** config.omori_p
 
     # Component 3: Moment depletion (from seismic moment)
     if len(event_history) > 0:
@@ -208,31 +163,25 @@ def temporal_probability(m_current, event_history, current_time, config):
     else:
         r_depletion = 0.0
 
-    # Combine
+    # Combine all components
     r_total = r_accumulation + r_omori + r_depletion
 
-    # Wrapping function (tanh with bounds) - but scale r_total first
-    # The issue is that r_total needs to be O(1) for tanh to work properly
-    scaled_r = config.gamma_temporal * r_total
+    # EXPONENTIAL FORM - no artificial saturation!
+    lambda_t = config.lambda_0 * np.exp(config.beta_rate * r_total)
 
-    # TODO: Why am I doing tanh in time?
-    if scaled_r > 0:
-        lambda_t = np.tanh(scaled_r)
-    else:
-        lambda_t = config.lambda_min
-
-    lambda_t = np.clip(lambda_t, config.lambda_min, config.lambda_max)
+    # Safety bounds (should rarely be needed with proper calibration)
+    lambda_t = np.clip(lambda_t, 1e-6, 10.0)
 
     # DEBUG: Print occasionally
     if (
         current_time > 0
-        and int(current_time) % 10 == 0
+        and int(current_time) % 100 == 0
         and abs(current_time - int(current_time)) < 0.01
     ):
         print(
             f"\nt={current_time:.1f}yr: Σm={total_geom_moment:.2e} m³, "
             f"r_acc={r_accumulation:.2e}, r_omori={r_omori:.2e}, r_depl={r_depletion:.2e}, "
-            f"λ={lambda_t:.4f}/yr"
+            f"r_tot={r_total:.2e}, λ={lambda_t:.4f}/yr"
         )
 
     components = {
@@ -242,5 +191,11 @@ def temporal_probability(m_current, event_history, current_time, config):
         "r_total": r_total,
         "total_geom_moment": total_geom_moment,
     }
+
+    if len(event_history) > 3 and current_time > 93 and current_time < 94:
+        print(
+            f"t={current_time:.3f}: r_acc={r_accumulation:.2e}, r_omori={r_omori:.2e}, "
+            f"r_depl={r_depletion:.2e}, r_tot={r_total:.2e}, λ={lambda_t:.4f}/yr"
+        )
 
     return lambda_t, components
