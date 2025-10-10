@@ -77,6 +77,65 @@ def compute_C_a(config):
     return C_a
 
 
+def compute_C_a_from_moment_balance(config):
+    """
+    Compute C_a from moment balance requirement
+
+    Ensures long-term average seismic release = tectonic loading
+    """
+    from moment import magnitude_to_seismic_moment
+
+    # Tectonic loading rate (geometric moment)
+    geom_loading_rate = (
+        config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
+    )  # m³/year
+
+    # Convert to seismic moment rate
+    seismic_loading_rate = config.shear_modulus_Pa * geom_loading_rate  # N·m/year
+
+    # Average seismic moment per event (from G-R distribution)
+    # For simplicity, approximate as dominated by large events
+    M0_min = magnitude_to_seismic_moment(config.M_min)
+    M0_max = magnitude_to_seismic_moment(config.M_max)
+
+    # For b=1, average is roughly M0_max / 2.5
+    # For other b-values, this changes - could do full integral
+    b = config.b_value
+    if b == 1.0:
+        M0_avg = M0_max / 2.5
+    else:
+        # Approximate for other b-values
+        # Higher b → more small events → lower average
+        M0_avg = M0_max / (1.5 + b)
+
+    print(f"  Average M0 per event: {M0_avg:.2e} N·m")
+    # print(f"  Corresponds to M ~{seismic_moment_to_magnitude(M0_avg):.1f}")
+
+    # Required average event rate for moment balance
+    lambda_required = seismic_loading_rate / M0_avg  # events/year
+
+    print(f"  Required average event rate: {lambda_required:.4f} events/year")
+    print(f"  = 1 event per {1 / lambda_required:.1f} years")
+
+    # Typical accumulated geometric moment in steady state
+    # Assume events occur when accumulated moment reaches some level
+    # Estimate: after ~50 years of accumulation between major events
+    typical_recurrence = 50.0  # years (adjustable)
+    typical_geom_moment = geom_loading_rate * typical_recurrence  # m³
+
+    # Set C_a so that this gives the required rate
+    # We want: tanh(gamma × C_a × m_typical) ~ lambda_required
+    # For tanh linear regime: gamma × C_a × m_typical ~ lambda_required
+    # So: C_a = lambda_required / (gamma × m_typical)
+
+    C_a = lambda_required / (config.gamma_temporal * typical_geom_moment)
+
+    print(f"  C_a = {C_a:.2e}")
+    print(f"  Typical geom moment: {typical_geom_moment:.2e} m³")
+
+    return C_a
+
+
 def compute_C_r(config, C_a):
     """
     Compute depletion coefficient

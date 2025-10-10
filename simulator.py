@@ -10,7 +10,7 @@ from pathlib import Path
 from geometry import create_fault_mesh
 from moment import initialize_moment, accumulate_moment
 from event_generator import generate_event
-from temporal_prob import compute_C_a, compute_C_r
+from temporal_prob import compute_C_a, compute_C_a_from_moment_balance, compute_C_r
 
 
 def run_simulation(config):
@@ -30,7 +30,7 @@ def run_simulation(config):
     config.compute_derived_parameters()
 
     # Compute C_a and C_r
-    config.C_a = compute_C_a(config)
+    config.C_a = compute_C_a_from_moment_balance(config)
     config.C_r = compute_C_r(config, config.C_a)
 
     print(f"C_a = {config.C_a:.2e}")
