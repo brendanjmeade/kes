@@ -20,6 +20,7 @@ runs/
 *.npz
 *.geo
 *.mp4
+*.txt
 mesh_test*
 .jupyter/desktop-settings.json
 .mypy_cache/
