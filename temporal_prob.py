@@ -13,110 +13,113 @@ def compute_exponential_rate_parameters(config):
 
     λ(t) = λ₀ × exp(β × r_total)
 
-    Derives all parameters from moment balance requirement
+    Beta scaled to give reasonable amplification
     """
-    print("DEBUG: Using NEW version with r_typical = 1.0")
+    print("DEBUG: Using FULLY PHYSICS-BASED version with scaled beta")
+
     # === Step 1: Required average rate from moment balance ===
 
     geom_loading_rate = (
         config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
-    )  # m³/year
-    seismic_loading_rate = config.shear_modulus_Pa * geom_loading_rate  # N·m/year
+    )
+    seismic_loading_rate = config.shear_modulus_Pa * geom_loading_rate
 
-    # Average M0 per event (dominated by large events in G-R)
     M0_max = magnitude_to_seismic_moment(config.M_max)
     M0_avg = M0_max / (1.5 + config.b_value)
 
-    # Required average event rate for moment balance
-    lambda_required = seismic_loading_rate / M0_avg  # events/year
+    lambda_required = seismic_loading_rate / M0_avg
 
-    print(f"\n=== Exponential Rate Parameters (from moment balance) ===")
-    print(f"  Geometric loading rate: {geom_loading_rate:.2e} m³/year")
-    print(f"  Seismic loading rate: {seismic_loading_rate:.2e} N·m/year")
-    print(f"  Average event magnitude: M {seismic_moment_to_magnitude(M0_avg):.1f}")
-    print(f"  Average event M0: {M0_avg:.2e} N·m")
-    print(f"  Required average rate: {lambda_required:.4f} events/year")
-    print(f"  = 1 event per {1 / lambda_required:.1f} years")
-
-    # === Step 2: Estimate typical r_total ===
-
-    # In steady state, moment accumulates for approximately half the recurrence interval
-    recurrence_interval = 1.0 / lambda_required  # years
-    typical_accumulation_time = recurrence_interval / 2  # years
-    typical_geom_moment = geom_loading_rate * typical_accumulation_time  # m³
-
-    # CRITICAL: Make r_typical ~ O(1) so beta is reasonable
-    # We'll set C_a such that C_a × typical_geom_moment ~ 1
-    r_typical = 1.0  # Target dimensionless value
-
-    print(f"  Typical recurrence interval: {recurrence_interval:.1f} years")
-    print(f"  Mid-cycle accumulated moment: {typical_geom_moment:.2e} m³")
-    print(f"  Target typical r_total: {r_typical:.2e}")
-
-    # === Step 3: Choose beta for reasonable sensitivity ===
-
-    # We want: exp(beta × r_typical) ~ amplification_factor
-    # With r_typical = 1, this becomes: exp(beta) ~ amplification_factor
-    # So: beta = ln(amplification_factor)
-    amplification_factor = 10.0
-
-    beta = np.log(amplification_factor)
-
-    print(f"  Target amplification at typical state: {amplification_factor:.0f}×")
-    print(f"  Beta: {beta:.2f}")
-
-    # === Step 4: Solve for lambda_0 ===
-
-    # At typical state: lambda_required = lambda_0 × exp(beta × r_typical)
-    # Therefore: lambda_0 = lambda_required / amplification_factor
-
-    lambda_0 = lambda_required / amplification_factor
-
-    print(f"  Lambda_0 (background rate): {lambda_0:.6f} events/year")
-    print(f"  = 1 event per {1 / lambda_0:.0f} years when r_total = 0")
-
-    # === Step 5: Compute C_a to achieve r_typical at mid-cycle ===
-
-    # We want: C_a × typical_geom_moment = r_typical
-    C_a = r_typical / typical_geom_moment
-
-    print(f"  C_a: {C_a:.2e} (m³·year)⁻¹")
+    print(f"\n=== Physics-Based Rate Parameters ===")
+    print(f"  Geom loading rate: {geom_loading_rate:.2e} m³/yr")
+    print(f"  Seismic loading rate: {seismic_loading_rate:.2e} N·m/yr")
     print(
-        f"  At mid-cycle: r_accumulation = C_a × {typical_geom_moment:.2e} = {r_typical:.2e}"
+        f"  Average event: M {seismic_moment_to_magnitude(M0_avg):.1f} ({M0_avg:.2e} N·m)"
+    )
+    print(
+        f"  Required rate: {lambda_required:.6f} events/yr = 1 per {1 / lambda_required:.0f} yr"
     )
 
-    # === Step 6: Compute C_r from depletion theory ===
+    # === Step 2: Natural scales ===
 
-    tau_recovery_years = 30.0
-    M_char_magnitude = config.M_max - 1.0
+    recurrence_time = 1.0 / lambda_required
+    typical_geom_moment = geom_loading_rate * (recurrence_time / 2)
+
+    print(f"  Recurrence time: {recurrence_time:.1f} years")
+    print(f"  Mid-cycle moment: {typical_geom_moment:.2e} m³")
+
+    # === Step 3: Choose beta for e² amplification at mid-cycle ===
+
+    r_mid_target = lambda_required
+
+    # Target: exp(beta × r_mid) = e² ≈ 7.4
+    # So: beta = 2 / r_mid
+    target_exponent = 2.0  # Gives e² ≈ 7.4× amplification
+    beta = target_exponent / r_mid_target
+
+    print(f"\n=== Rate Parameters ===")
+    print(f"  Beta: {beta:.2f} (scaled for amplification)")
+    print(f"  Target mid-cycle r: {r_mid_target:.6f}")
+    print(f"  Target amplification: {np.e**target_exponent:.2f}×")
+
+    # Solve for lambda_0
+    lambda_0 = lambda_required / np.exp(target_exponent)
+
+    print(f"  Lambda_0: {lambda_0:.6f} events/yr (background)")
+    print(f"  = 1 per {1 / lambda_0:.0f} years at r=0")
+
+    # C_a gives r_mid_target at mid-cycle
+    C_a = r_mid_target / typical_geom_moment
+
+    print(f"  C_a: {C_a:.2e} (m³·yr)⁻¹")
+    print(f"  At mid-cycle: r_acc = {C_a * typical_geom_moment:.6f}")
+
+    # === Step 4: Depletion ===
+
+    tau_recovery = recurrence_time
+    M_char_magnitude = config.M_max - 0.5
     M_char = magnitude_to_seismic_moment(M_char_magnitude)
 
-    accumulated_during_recovery = geom_loading_rate * tau_recovery_years
-
-    C_r_base = (C_a * accumulated_during_recovery) / (M_char**config.psi)
-    C_r = C_r_base * 5.0
+    accumulated_during_recovery = geom_loading_rate * tau_recovery
+    C_r = (C_a * accumulated_during_recovery) / (M_char**config.psi)
 
     print(f"\n=== Depletion Parameters ===")
-    print(f"  Characteristic event: M {M_char_magnitude:.1f} = {M_char:.2e} N·m")
-    print(f"  Recovery timescale: {tau_recovery_years} years")
-    print(f"  C_r: {C_r:.2e} (N·m)^(-{config.psi:.3f}) year⁻¹")
+    print(f"  Characteristic event: M {M_char_magnitude:.1f} ({M_char:.2e} N·m)")
+    print(f"  Recovery time: {tau_recovery:.1f} years")
+    print(f"  C_r: {C_r:.2e}")
+
+    r_depl_after_char = -C_r * M_char**config.psi
+    print(f"  After M {M_char_magnitude:.1f}: r_depl = {r_depl_after_char:.6f}")
+    print(f"  Ratio to r_mid: {abs(r_depl_after_char / r_mid_target):.2f}×")
 
     # === Verification ===
 
-    print(f"\n=== Verification ===")
-    print(f"  When r_total = 0: λ = {lambda_0:.6f}/yr")
+    r_mid_actual = C_a * typical_geom_moment
+    lambda_mid_actual = lambda_0 * np.exp(beta * r_mid_actual)
+
+    print(f"\n=== Self-Consistency Check ===")
+    print(f"  At t=0: r_total ≈ 0, λ = {lambda_0:.6f}/yr")
     print(
-        f"  When r_total = {r_typical:.2f}: λ = {lambda_0 * np.exp(beta * r_typical):.6f}/yr"
+        f"  At mid-cycle: r_total = {r_mid_actual:.6f}, λ = {lambda_mid_actual:.6f}/yr"
     )
-    print(f"  Target average rate: {lambda_required:.6f}/yr")
+    print(f"  Target rate: {lambda_required:.6f}/yr")
 
-    if abs(lambda_0 * np.exp(beta * r_typical) - lambda_required) < 0.0001:
-        print(f"  ✓ Rates match!")
-    else:
-        print(f"  ✗ WARNING: Rates don't match!")
+    error = abs(lambda_mid_actual - lambda_required) / lambda_required
+    print(f"  Relative error: {error:.2%}")
+    print(f"  Match: {error < 0.01}")
 
-    print(f"  Moment balance: {seismic_loading_rate:.2e} N·m/yr in")
-    print(f"                = {lambda_required:.6f}/yr × {M0_avg:.2e} N·m out")
+    print(f"\n=== Moment Balance ===")
+    print(f"  Input: {seismic_loading_rate:.2e} N·m/yr")
+    print(
+        f"  Output: {lambda_required:.6f}/yr × {M0_avg:.2e} N·m = {lambda_required * M0_avg:.2e} N·m/yr"
+    )
+    print(f"  Ratio: {(lambda_required * M0_avg) / seismic_loading_rate:.3f}")
+
+    print(f"\n=== Sensitivity Examples (with beta={beta:.1f}) ===")
+    for r_example in [0.001, 0.003, 0.005, 0.01, 0.05]:
+        lambda_example = lambda_0 * np.exp(beta * r_example)
+        print(
+            f"  If r_total = {r_example:.3f}: λ = {lambda_example:.6f}/yr ({lambda_example / lambda_0:.2f}×)"
+        )
 
     return lambda_0, beta, C_a, C_r
 
