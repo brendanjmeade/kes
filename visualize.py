@@ -305,7 +305,7 @@ def plot_magnitude_time_series(results, config):
         magnitudes,
         c=magnitudes,
         cmap="YlOrRd",
-        s=3 * np.array(magnitudes) ** 2.0,
+        s=3 * np.array(magnitudes) ** 4.0,
         alpha=1.0,
         edgecolors="black",
         linewidth=0.5,
@@ -544,6 +544,6 @@ def plot_all_diagnostics(results, config):
     plot_event_rate_evolution(results, config)
 
     # Animation (optional, can take time)
-    create_moment_animation(results, config)
+    # create_moment_animation(results, config)
 
     print("\nAll plots generated!")

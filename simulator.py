@@ -1,5 +1,5 @@
 """
-Main simulation loop
+Main simulation loop with rate-based event generation
 """
 
 import numpy as np
@@ -9,13 +9,13 @@ from pathlib import Path
 
 from geometry import create_fault_mesh
 from moment import initialize_moment, accumulate_moment
-from event_generator import generate_event
-from temporal_prob import compute_exponential_rate_parameters
+from event_generator import generate_events_in_timestep
+from temporal_prob import compute_rate_parameters
 
 
 def run_simulation(config):
     """
-    Run full earthquake simulation
+    Run full earthquake simulation with rate-based generation
 
     Returns:
     --------
@@ -23,7 +23,7 @@ def run_simulation(config):
     """
     print("=" * 70)
     print("STRIKE-SLIP FAULT EARTHQUAKE SIMULATOR")
-    print("With MaxEnt spatial distribution and exponential temporal rate")
+    print("Rate-based event generation (can have multiple events per step)")
     print("=" * 70)
 
     print("\nInitializing simulation...")
@@ -34,12 +34,11 @@ def run_simulation(config):
     # Compute derived parameters
     config.compute_derived_parameters()
 
-    # Compute temporal probability parameters from moment balance
-    lambda_0, beta, C_a, C_r = compute_exponential_rate_parameters(config)
+    # Compute rate parameters from moment balance
+    lambda_0, C_a, C_r = compute_rate_parameters(config)
 
     # Store in config
     config.lambda_0 = lambda_0
-    config.beta_rate = beta
     config.C_a = C_a
     config.C_r = C_r
 
@@ -55,12 +54,9 @@ def run_simulation(config):
     print("Initializing moment distribution...")
     m_current, slip_rate = initialize_moment(config, mesh)
 
-    print(f"  Background slip rate: {config.background_slip_rate_mm_yr} mm/year")
-    print(f"  Number of moment pulses: {len(config.moment_pulses)}")
-
     # Storage for results
     event_history = []
-    moment_snapshots = []  # Store moment field at intervals
+    moment_snapshots = []
     snapshot_times = []
 
     # Time array
@@ -81,16 +77,22 @@ def run_simulation(config):
             m_current, slip_rate, config.element_area_m2, dt_years
         )
 
-        # Try to generate event
-        event, m_current = generate_event(
-            m_current, event_history, current_time, mesh, config
+        # Generate events (can be 0, 1, 2, ...)
+        events, m_current = generate_events_in_timestep(
+            m_current, event_history, current_time, dt_years, mesh, config
         )
 
-        if event is not None:
-            event_history.append(event)
-            tqdm.write(
-                f"Event {len(event_history)}: t={current_time:.2f} yr, M={event['magnitude']:.2f}"
-            )
+        # Add to history
+        if len(events) > 0:
+            event_history.extend(events)
+            if len(events) == 1:
+                tqdm.write(
+                    f"Event {len(event_history)}: t={current_time:.2f} yr, M={events[0]['magnitude']:.2f}"
+                )
+            else:
+                tqdm.write(
+                    f"{len(events)} events at t={current_time:.2f} yr: M={[e['magnitude'] for e in events]}"
+                )
 
         # Save snapshots (every year)
         if i % int(365.25 / config.time_step_days) == 0:
@@ -101,11 +103,17 @@ def run_simulation(config):
     print("SIMULATION COMPLETE")
     print(f"  Total events: {len(event_history)}")
     print(
-        f"  Average rate: {len(event_history) / config.duration_years:.4f} events/year"
+        f"  Average rate: {len(event_history) / config.duration_years:.6f} events/year"
     )
-    print(
-        f"  Target rate: {lambda_0 * np.exp(beta * C_a * np.mean([np.sum(m) for m in moment_snapshots])):.4f} events/year"
-    )
+
+    # Count timesteps with multiple events
+    timesteps_with_events = {}
+    for event in event_history:
+        t = event["time"]
+        timesteps_with_events[t] = timesteps_with_events.get(t, 0) + 1
+
+    multi_event_steps = sum(1 for count in timesteps_with_events.values() if count > 1)
+    print(f"  Timesteps with multiple events: {multi_event_steps}")
     print("=" * 70)
 
     # Compile results

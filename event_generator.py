@@ -1,22 +1,24 @@
 """
-Main event generation logic combining spatial and temporal
+Rate-based event generation
+Can generate 0, 1, 2, ... events per time step
 """
 
 import numpy as np
 from moment import magnitude_to_seismic_moment, seismic_moment_to_magnitude
 from spatial_prob import spatial_probability
 from slip_generator import generate_slip_distribution
+from temporal_prob import earthquake_rate
 
 
 def draw_magnitude(config):
     """
     Sample magnitude from Gutenberg-Richter distribution
     """
-    # Inverse transform sampling
     b = config.b_value
     M_min = config.M_min
     M_max = config.M_max
 
+    # Inverse transform sampling
     denom = 10 ** (-b * M_min) - 10 ** (-b * M_max)
     u = np.random.random()
 
@@ -25,113 +27,74 @@ def draw_magnitude(config):
     return magnitude
 
 
-def generate_event(m_current, event_history, current_time, mesh, config):
+def generate_events_in_timestep(
+    m_current, event_history, current_time, dt_years, mesh, config
+):
     """
-    Generate a single earthquake event
+    Generate events for a single time step using rate-based approach
 
     Returns:
     --------
-    event : dict with event properties, or None if no event
+    events : list of event dictionaries (can be empty, or have multiple events)
     m_updated : updated moment distribution
     """
-    # from temporal_prob import temporal_probability
-
-    # # Compute temporal probability
-    # lambda_t, components = temporal_probability(
-    #     m_current, event_history, current_time, config
-    # )
-
-    # # Bernoulli draw: does event occur?
-    # dt_years = config.time_step_days / 365.25
-    # p_event = lambda_t * dt_years
-
-    # if np.random.random() > p_event:
-    #     return None, m_current  # No event
-
-    from temporal_prob import temporal_probability
-
-    # Compute temporal probability
-    lambda_t, components = temporal_probability(
+    # Compute instantaneous rate
+    lambda_t, components = earthquake_rate(
         m_current, event_history, current_time, config
     )
 
-    # Bernoulli draw: does event occur?
-    dt_years = config.time_step_days / 365.25
+    # Expected number of events in this time interval
+    expected_events = lambda_t * dt_years
 
-    # IMPORTANT: lambda_t is event rate (events/year)
-    # But it's already scaled by tanh to be between [lambda_min, lambda_max]
-    # So probability per time step is:
-    p_event = lambda_t * dt_years
+    # Generate actual number of events (Poisson process)
+    n_events = np.random.poisson(expected_events)
 
-    # Additional check: don't let p_event exceed reasonable value
-    p_event = min(p_event, 0.1)  # Max 10% chance per time step
+    # Generate each event
+    events = []
+    m_working = m_current.copy()
 
-    # DEBUG OUTPUT
-    if current_time > 0 and int(current_time * 10) % 100 == 0:  # Every 10 years
-        print(
-            f"t={current_time:.1f}: λ={lambda_t:.4f}/yr, p_step={p_event:.6f}, "
-            f"Σm={components['total_geom_moment']:.2e}"
+    for i in range(n_events):
+        # Draw magnitude
+        magnitude = draw_magnitude(config)
+
+        # Compute spatial probability for this magnitude
+        p_spatial, gamma_used = spatial_probability(m_working, magnitude, config)
+
+        # Sample hypocenter location
+        hypocenter_idx = np.random.choice(config.n_elements, p=p_spatial)
+
+        # Generate slip distribution
+        slip, ruptured_elements = generate_slip_distribution(
+            hypocenter_idx, magnitude, m_working, mesh, config
         )
 
-    if np.random.random() > p_event:
-        return None, m_current  # No event
+        # Compute actual moment
+        M0_actual = config.shear_modulus_Pa * np.sum(slip * config.element_area_m2)
+        M_actual = seismic_moment_to_magnitude(M0_actual)
 
-    # Event occurs! Generate details
+        # Update moment distribution
+        from moment import release_moment
 
-    # 1. Draw magnitude
-    magnitude = draw_magnitude(config)
+        m_working = release_moment(m_working, slip, config.element_area_m2)
 
-    # 2. Compute spatial probability
-    p_spatial, gamma_used = spatial_probability(m_current, magnitude, config)
+        # Create event record
+        hypo_x = mesh["centroids"][hypocenter_idx, 0]
+        hypo_z = mesh["centroids"][hypocenter_idx, 2]
 
-    # 3. Sample hypocenter location
-    hypocenter_idx = np.random.choice(config.n_elements, p=p_spatial)
+        event = {
+            "time": current_time,
+            "magnitude": M_actual,
+            "M0": M0_actual,
+            "hypocenter_idx": hypocenter_idx,
+            "hypocenter_x_km": hypo_x,
+            "hypocenter_z_km": hypo_z,
+            "ruptured_elements": ruptured_elements,
+            "slip": slip,
+            "gamma_used": gamma_used,
+            "lambda_t": lambda_t,
+            "components": components,
+        }
 
-    # 4. Generate slip distribution
-    slip, ruptured_elements = generate_slip_distribution(
-        hypocenter_idx, magnitude, m_current, mesh, config
-    )
+        events.append(event)
 
-    # 5. Compute actual moment
-    M0_actual = config.shear_modulus_Pa * np.sum(slip * config.element_area_m2)
-    M_actual = seismic_moment_to_magnitude(M0_actual)
-
-    # 6. Update moment distribution
-    from moment import release_moment
-
-    m_updated = release_moment(m_current, slip, config.element_area_m2)
-
-    # 7. Create event record
-    hypo_x, hypo_z = (
-        mesh["centroids"][hypocenter_idx, 0],
-        mesh["centroids"][hypocenter_idx, 2],
-    )
-
-    event = {
-        "time": current_time,
-        "magnitude": M_actual,
-        "M0": M0_actual,
-        "hypocenter_idx": hypocenter_idx,
-        "hypocenter_x_km": hypo_x,
-        "hypocenter_z_km": hypo_z,
-        "ruptured_elements": ruptured_elements,
-        "slip": slip,
-        "gamma_used": gamma_used,
-        "lambda_t": lambda_t,
-        "temporal_components": components,
-    }
-
-    # After event is created, print diagnostics
-    if event is not None:
-        # After event is created
-        print(f"\n=== Event Moment Budget ===")
-        print(f"  Total geom moment before: {np.sum(m_current):.2e} m³")
-        geom_released = np.sum(slip * config.element_area_m2)
-        print(f"  Geometric moment released: {geom_released:.2e} m³")
-        print(f"  Total geom moment after: {np.sum(m_updated):.2e} m³")
-        print(f"  Change: {np.sum(m_current) - np.sum(m_updated):.2e} m³")
-        print(f"  Should equal released: {geom_released:.2e} m³")
-        print(
-            f"  Match: {abs(geom_released - (np.sum(m_current) - np.sum(m_updated))) < 1e-6}"
-        )
-    return event, m_updated
+    return events, m_working
