@@ -7,35 +7,101 @@ import numpy as np
 
 def initialize_moment(config, mesh):
     """
-    Initialize moment distribution with background + Gaussian pulses
+    Initialize geometric moment distribution on fault with initial spin-up
+
+    Start partway through the earthquake cycle to avoid long initial transient
+
+    Parameters:
+    -----------
+    config : Config object
+    mesh : dict with fault geometry
 
     Returns:
     --------
-    m_current : (n_elements,) array of geometric moment (m)
-    slip_rate : (n_elements,) array of slip deficit rate (m/year)
+    m_current : array of geometric moment (m³) for each element
+    slip_rate : array of slip rate (m/year) for each element
     """
-    # Background slip rate (uniform)
-    slip_rate = np.full(config.n_elements, config.background_slip_rate_m_yr)
+    from moment import magnitude_to_seismic_moment, seismic_moment_to_magnitude
 
-    # Add Gaussian pulse(s)
-    for pulse in config.moment_pulses:
-        x_center = pulse["center_x_km"]
-        z_center = pulse["center_z_km"]
-        sigma = pulse["sigma_km"]
-        amplitude = pulse["amplitude_mm_yr"] / 1000.0  # Convert to m/year
+    print("\nInitializing moment distribution...")
 
-        # Compute distance from pulse center
-        dx = mesh["centroids"][:, 0] - x_center
-        dz = mesh["centroids"][:, 2] - z_center
-        r = np.sqrt(dx**2 + dz**2)
+    # === Create spatially heterogeneous slip rate ===
 
-        # Gaussian distribution
-        gaussian = amplitude * np.exp(-(r**2) / (2 * sigma**2))
+    # Base slip rate (uniform)
+    slip_rate = np.ones(config.n_elements) * config.background_slip_rate_m_yr
 
-        slip_rate += gaussian
+    # Add Gaussian moment-rate pulses if specified
+    if (
+        hasattr(config, "moment_pulses")
+        and config.moment_pulses is not None
+        and len(config.moment_pulses) > 0
+    ):
+        centroids = mesh["centroids"]
 
-    # Start with zero accumulated moment
-    m_current = np.zeros(config.n_elements)
+        for pulse in config.moment_pulses:
+            # Get pulse parameters from the pulse dict/tuple
+            if isinstance(pulse, dict):
+                center_x = pulse.get(
+                    "center_x", np.random.uniform(0, config.fault_length_km)
+                )
+                center_z = pulse.get("center_z", config.fault_depth_km / 2)
+                amplitude = pulse.get("amplitude", config.background_slip_rate_m_yr)
+                width = pulse.get("width_km", 20.0)
+            else:
+                # Default: random location
+                center_x = np.random.uniform(0, config.fault_length_km)
+                center_z = config.fault_depth_km / 2
+                amplitude = config.background_slip_rate_m_yr
+                width = 20.0
+
+            # Gaussian in 2D
+            dx = centroids[:, 0] - center_x
+            dz = centroids[:, 2] - center_z
+            r_sq = dx**2 + dz**2
+
+            gaussian = amplitude * np.exp(-r_sq / (2 * width**2))
+
+            slip_rate += gaussian
+
+        print(
+            f"  Background slip rate: {config.background_slip_rate_m_yr * 1000:.1f} mm/year"
+        )
+        print(f"  Number of moment pulses: {len(config.moment_pulses)}")
+    else:
+        print(
+            f"  Uniform slip rate: {config.background_slip_rate_m_yr * 1000:.1f} mm/year"
+        )
+
+    # === Initialize with partial earthquake cycle ===
+
+    # Compute lambda_required from moment balance
+    geom_loading_rate = (
+        config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
+    )
+    seismic_loading_rate = config.shear_modulus_Pa * geom_loading_rate
+
+    M0_max = magnitude_to_seismic_moment(config.M_max)
+    M0_avg = M0_max / (1.5 + config.b_value)
+
+    lambda_required = seismic_loading_rate / M0_avg
+    recurrence_time = 1.0 / lambda_required
+
+    # Start at 50% of the way to mid-cycle
+    # Mid-cycle is at recurrence_time/2, so 50% of that is recurrence_time/4
+    initial_time_equivalent = recurrence_time / 4  # years
+
+    # Accumulate moment for this equivalent time
+    m_current = slip_rate * config.element_area_m2 * initial_time_equivalent
+
+    print(f"  Recurrence time: {recurrence_time:.1f} years")
+    print(
+        f"  Starting at equivalent time: {initial_time_equivalent:.1f} years into cycle"
+    )
+    print(f"  Initial total moment: {np.sum(m_current):.2e} m³")
+    print(f"  Mid-cycle moment: {geom_loading_rate * recurrence_time / 2:.2e} m³")
+    print(
+        f"  Initial as % of mid-cycle: {100 * np.sum(m_current) / (geom_loading_rate * recurrence_time / 2):.1f}%"
+    )
 
     return m_current, slip_rate
 

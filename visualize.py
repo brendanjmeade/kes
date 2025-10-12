@@ -305,7 +305,7 @@ def plot_magnitude_time_series(results, config):
         magnitudes,
         c=magnitudes,
         cmap="YlOrRd",
-        s=3 * np.array(magnitudes) ** 4.0,
+        s=1e-4 * np.array(magnitudes) ** 8.0,
         alpha=1.0,
         edgecolors="black",
         linewidth=0.5,
