@@ -1,5 +1,5 @@
 """
-Main simulation loop with rate-based event generation using deterministic accumulator
+Main simulation loop with moment-based rate generation
 """
 
 import numpy as np
@@ -14,7 +14,11 @@ from moment import (
     release_moment,
     seismic_moment_to_magnitude,
 )
-from temporal_prob import compute_rate_parameters, earthquake_rate
+from temporal_prob import (
+    compute_rate_parameters,
+    earthquake_rate,
+    update_rate_correction,
+)
 from spatial_prob import spatial_probability
 from slip_generator import generate_slip_distribution
 
@@ -38,10 +42,10 @@ def draw_magnitude(config):
 
 def run_simulation(config):
     """
-    Run full earthquake simulation with rate-based generation
+    Run full earthquake simulation with adaptive moment-based rate generation
 
-    Uses deterministic accumulator instead of Poisson sampling
-    to ensure exact moment balance over long timescales
+    Uses λ(t) = C × correction_factor(t) × moment_deficit(t)
+    The correction factor adapts to maintain moment balance
 
     Returns:
     --------
@@ -49,7 +53,7 @@ def run_simulation(config):
     """
     print("=" * 70)
     print("STRIKE-SLIP FAULT EARTHQUAKE SIMULATOR")
-    print("Rate-based event generation with deterministic accumulator")
+    print("Adaptive moment-based rate generation")
     print("=" * 70)
 
     print("\nInitializing simulation...")
@@ -60,13 +64,8 @@ def run_simulation(config):
     # Compute derived parameters
     config.compute_derived_parameters()
 
-    # Compute rate parameters from moment balance
-    lambda_0, C_a, C_r = compute_rate_parameters(config)
-
-    # Store in config
-    config.lambda_0 = lambda_0
-    config.C_a = C_a
-    config.C_r = C_r
+    # Compute rate coefficient from moment balance
+    C_rate = compute_rate_parameters(config)
 
     print("\n" + "=" * 70)
     print("PARAMETERS SET - Ready to simulate")
@@ -88,15 +87,28 @@ def run_simulation(config):
     times = np.linspace(0, config.duration_years, config.n_time_steps)
     dt_years = config.time_step_days / 365.25
 
-    # Deterministic accumulator for fractional events (KEY FIX!)
+    # Deterministic accumulator for fractional events
     event_debt = 0.0
 
-    print(f"\n" + "=" * 70)
-    print(f"RUNNING SIMULATION")
+    # Track cumulative moment for rate calculation
+    cumulative_loading = np.sum(m_current)  # Start with initial moment
+    cumulative_release = 0.0  # No events yet
+
+    # Adaptive correction update interval
+    correction_update_interval = int(
+        1000 * 365.25 / config.time_step_days
+    )  # Every 1000 years
+
+    print("\n" + "=" * 70)
+    print("RUNNING SIMULATION")
     print(f"  Duration: {config.duration_years} years")
     print(f"  Time steps: {config.n_time_steps}")
     print(f"  Time step size: {config.time_step_days} days = {dt_years:.6f} years")
-    print(f"  Event generation: Deterministic accumulator (not Poisson)")
+    print("  Event generation: Deterministic accumulator with adaptive rate")
+    print(f"  Initial moment: {cumulative_loading:.2e} m³")
+    print(
+        f"  Rate correction update interval: {correction_update_interval * dt_years:.0f} years"
+    )
     print("=" * 70 + "\n")
 
     # Simulation loop
@@ -106,9 +118,24 @@ def run_simulation(config):
             m_current, slip_rate, config.element_area_m2, dt_years
         )
 
-        # Compute instantaneous rate
+        # Update cumulative loading
+        moment_added = np.sum(slip_rate * config.element_area_m2) * dt_years
+        cumulative_loading += moment_added
+
+        # Update adaptive rate correction periodically
+        if i % correction_update_interval == 0 and i > 0:
+            update_rate_correction(
+                config, cumulative_loading, cumulative_release, current_time
+            )
+
+        # Compute instantaneous rate based on moment deficit
         lambda_t, components = earthquake_rate(
-            m_current, event_history, current_time, config
+            m_current,
+            event_history,
+            current_time,
+            config,
+            cumulative_loading,
+            cumulative_release,
         )
 
         # Accumulate fractional events
@@ -122,6 +149,66 @@ def run_simulation(config):
         if n_events > 0:
             m_working = m_current.copy()
 
+            # for j in range(n_events):
+            #     # Draw magnitude from G-R distribution
+            #     magnitude = draw_magnitude(config)
+
+            #     # Compute spatial probability for this magnitude
+            #     p_spatial, gamma_used = spatial_probability(
+            #         m_working, magnitude, config
+            #     )
+
+            #     # Sample hypocenter location
+            #     hypocenter_idx = np.random.choice(config.n_elements, p=p_spatial)
+
+            #     # Generate slip distribution (constrained to available moment)
+            #     slip, ruptured_elements, M0_actual = generate_slip_distribution(
+            #         hypocenter_idx, magnitude, m_working, mesh, config
+            #     )
+
+            #     M_actual = seismic_moment_to_magnitude(M0_actual)
+
+            #     # Compute geometric moment released
+            #     geom_moment_released = M0_actual / config.shear_modulus_Pa
+
+            #     # Update moment distribution (release slip)
+            #     m_working = release_moment(m_working, slip, config.element_area_m2)
+
+            #     # Update cumulative release
+            #     cumulative_release += geom_moment_released
+
+            #     # Create event record
+            #     hypo_x = mesh["centroids"][hypocenter_idx, 0]
+            #     hypo_z = mesh["centroids"][hypocenter_idx, 2]
+
+            #     event = {
+            #         "time": current_time,
+            #         "magnitude": M_actual,
+            #         "M0": M0_actual,
+            #         "hypocenter_idx": hypocenter_idx,
+            #         "hypocenter_x_km": hypo_x,
+            #         "hypocenter_z_km": hypo_z,
+            #         "ruptured_elements": ruptured_elements,
+            #         "slip": slip,
+            #         "gamma_used": gamma_used,
+            #         "lambda_t": lambda_t,
+            #         "components": components,
+            #     }
+
+            #     event_history.append(event)
+
+            #     # Print progress
+            #     if len(event_history) == 1:
+            #         tqdm.write(
+            #             f"Event 1: t={current_time:.2f} yr, M={M_actual:.2f}, λ={lambda_t:.6f}/yr"
+            #         )
+            #     elif len(event_history) % 100 == 0:
+            #         tqdm.write(
+            #             f"Event {len(event_history)}: t={current_time:.2f} yr, M={M_actual:.2f}, "
+            #             f"coupling={cumulative_release / cumulative_loading:.3f}"
+            #         )
+            # Around line 140-180 in the event generation loop
+
             for j in range(n_events):
                 # Draw magnitude from G-R distribution
                 magnitude = draw_magnitude(config)
@@ -134,19 +221,22 @@ def run_simulation(config):
                 # Sample hypocenter location
                 hypocenter_idx = np.random.choice(config.n_elements, p=p_spatial)
 
-                # Generate slip distribution
-                slip, ruptured_elements = generate_slip_distribution(
+                # Generate slip distribution (constrained to available moment)
+                slip, ruptured_elements, M0_actual = generate_slip_distribution(
                     hypocenter_idx, magnitude, m_working, mesh, config
                 )
 
-                # Compute actual seismic moment released
-                M0_actual = config.shear_modulus_Pa * np.sum(
-                    slip * config.element_area_m2
-                )
                 M_actual = seismic_moment_to_magnitude(M0_actual)
+
+                # Compute ACTUAL geometric moment released from the slip distribution
+                # This is the authoritative value - use slip that was actually applied
+                geom_moment_released = np.sum(slip * config.element_area_m2)
 
                 # Update moment distribution (release slip)
                 m_working = release_moment(m_working, slip, config.element_area_m2)
+
+                # Update cumulative release with actual geometric moment
+                cumulative_release += geom_moment_released
 
                 # Create event record
                 hypo_x = mesh["centroids"][hypocenter_idx, 0]
@@ -156,6 +246,7 @@ def run_simulation(config):
                     "time": current_time,
                     "magnitude": M_actual,
                     "M0": M0_actual,
+                    "geom_moment": geom_moment_released,  # CRITICAL: Store actual geometric moment
                     "hypocenter_idx": hypocenter_idx,
                     "hypocenter_x_km": hypo_x,
                     "hypocenter_z_km": hypo_z,
@@ -173,11 +264,11 @@ def run_simulation(config):
                     tqdm.write(
                         f"Event 1: t={current_time:.2f} yr, M={M_actual:.2f}, λ={lambda_t:.6f}/yr"
                     )
-                elif len(event_history) % 10 == 0:
+                elif len(event_history) % 100 == 0:
                     tqdm.write(
-                        f"Event {len(event_history)}: t={current_time:.2f} yr, M={M_actual:.2f}"
+                        f"Event {len(event_history)}: t={current_time:.2f} yr, M={M_actual:.2f}, "
+                        f"coupling={cumulative_release / cumulative_loading:.3f}"
                     )
-
             # Update m_current with all releases from this timestep
             m_current = m_working
 
@@ -190,12 +281,22 @@ def run_simulation(config):
     print("SIMULATION COMPLETE")
     print(f"  Total events: {len(event_history)}")
     if len(event_history) > 0:
+        total_M0_released = sum(e["M0"] for e in event_history)
+        total_M0_loaded = (
+            config.shear_modulus_Pa
+            * np.sum(slip_rate)
+            * config.element_area_m2
+            * config.duration_years
+        )
+        coupling = total_M0_released / total_M0_loaded
         print(
             f"  Average rate: {len(event_history) / config.duration_years:.6f} events/year"
         )
-        print(
-            f"  Target rate: {config.lambda_0 + config.C_a * np.mean([np.sum(s) for s in moment_snapshots]):.6f} events/year"
-        )
+        print(f"  Final seismic coupling: {coupling:.3f}")
+        print(f"  Final correction factor: {config.rate_correction_factor:.3f}")
+        print(f"  Cumulative loading: {cumulative_loading:.2e} m³")
+        print(f"  Cumulative release: {cumulative_release:.2e} m³")
+        print(f"  Final deficit: {cumulative_loading - cumulative_release:.2e} m³")
     else:
         print(f"  WARNING: No events generated!")
     print("=" * 70)
@@ -209,6 +310,9 @@ def run_simulation(config):
         "moment_snapshots": moment_snapshots,
         "snapshot_times": snapshot_times,
         "final_moment": m_current,
+        "cumulative_loading": cumulative_loading,
+        "cumulative_release": cumulative_release,
+        "coupling_history": config.coupling_history,
     }
 
     return results

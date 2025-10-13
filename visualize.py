@@ -112,73 +112,189 @@ def plot_moment_history(results, config):
     return fig
 
 
-def plot_moment_budget_analysis(results, config):
-    """
-    Analyze moment budget: input vs. output over time
+# def plot_moment_budget_analysis(results, config):
+#     """
+#     Analyze moment budget: input vs. output over time
 
-    Shows cumulative loading vs. cumulative release
+#     Shows cumulative loading vs. cumulative release
+#     """
+#     event_history = results["event_history"]
+
+#     if len(event_history) == 0:
+#         print("No events for budget analysis")
+#         return
+
+#     # Time array
+#     max_time = event_history[-1]["time"]
+#     times = np.linspace(0, max_time, 1000)
+
+#     # Cumulative tectonic loading
+#     total_loading_rate = (
+#         config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
+#     )
+#     cumulative_loading = times * total_loading_rate  # m³
+
+#     # Cumulative seismic release (as geometric moment)
+#     cumulative_release = np.zeros_like(times)
+#     for i, t in enumerate(times):
+#         # Sum all geometric moment released up to time t
+#         released = sum(
+#             [
+#                 np.sum(e["slip"] * config.element_area_m2)
+#                 for e in event_history
+#                 if e["time"] <= t
+#             ]
+#         )
+#         cumulative_release[i] = released
+
+#     # Moment deficit = loading - release
+#     moment_deficit = cumulative_loading - cumulative_release
+
+#     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+
+#     # Top panel: Cumulative loading vs. release
+#     ax1.plot(
+#         times,
+#         cumulative_loading,
+#         "b-",
+#         linewidth=2,
+#         label="Cumulative Tectonic Loading",
+#     )
+#     ax1.plot(
+#         times, cumulative_release, "r-", linewidth=2, label="Cumulative Seismic Release"
+#     )
+
+#     ax1.set_ylabel("Cumulative Moment (m³)", fontsize=12)
+#     ax1.set_title("Moment Budget: Loading vs. Release", fontsize=14, fontweight="bold")
+#     ax1.legend(fontsize=11)
+#     ax1.grid(True, alpha=0.3)
+
+#     # Bottom panel: Moment deficit
+#     ax2.plot(times, moment_deficit, "purple", linewidth=2)
+#     ax2.axhline(0, color="k", linestyle="--", linewidth=0.5)
+
+#     ax2.set_xlabel("Time (years)", fontsize=12)
+#     ax2.set_ylabel("Moment Deficit (m³)", fontsize=12)
+#     ax2.set_title("Accumulated Moment Deficit", fontsize=13, fontweight="bold")
+#     ax2.grid(True, alpha=0.3)
+
+#     # Compute coupling coefficient
+#     if max_time > 0:
+#         total_loaded = cumulative_loading[-1]
+#         total_released = cumulative_release[-1]
+#         coupling_coef = total_released / total_loaded
+
+#         ax2.text(
+#             0.02,
+#             0.95,
+#             f"Seismic Coupling: {coupling_coef:.3f}",
+#             transform=ax2.transAxes,
+#             fontsize=11,
+#             verticalalignment="top",
+#             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+#         )
+
+#     plt.tight_layout()
+
+#     # Save
+#     output_path = Path(config.output_dir) / "moment_budget.png"
+#     plt.savefig(output_path, dpi=150, bbox_inches="tight")
+#     print(f"Saved: {output_path}")
+
+#     return fig
+
+
+def plot_moment_budget(results, config):
+    """
+    Plot moment budget showing loading vs release
+
+    Uses actual event times to ensure accurate tracking throughout simulation
     """
     event_history = results["event_history"]
 
-    if len(event_history) == 0:
-        print("No events for budget analysis")
-        return
+    # Extract event times and create dense time array
+    if len(event_history) > 0:
+        event_times = np.array([e["time"] for e in event_history])
+        # Combine regular grid with actual event times
+        regular_times = np.linspace(0, config.duration_years, 1000)
+        times = np.sort(np.unique(np.concatenate([regular_times, event_times])))
+    else:
+        times = np.linspace(0, config.duration_years, 1000)
 
-    # Time array
-    max_time = event_history[-1]["time"]
-    times = np.linspace(0, max_time, 1000)
-
-    # Cumulative tectonic loading
+    # Cumulative tectonic loading (geometric moment)
     total_loading_rate = (
         config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
     )
-    cumulative_loading = times * total_loading_rate  # m³
 
-    # Cumulative seismic release (as geometric moment)
+    # Include initial moment from spin-up
+    initial_moment = results.get("cumulative_loading", 0.0) - (
+        total_loading_rate * config.duration_years
+    )
+
+    # cumulative_loading = initial_moment + times * total_loading_rate  # m³
+
+    # NEW (correct):
+    cumulative_loading = times * total_loading_rate  # m³ - starts at zero
+
+    # Cumulative seismic release (geometric moment)
+    # Build efficiently using cumsum
     cumulative_release = np.zeros_like(times)
-    for i, t in enumerate(times):
-        # Sum all geometric moment released up to time t
-        released = sum(
-            [
-                np.sum(e["slip"] * config.element_area_m2)
-                for e in event_history
-                if e["time"] <= t
-            ]
-        )
-        cumulative_release[i] = released
 
-    # Moment deficit = loading - release
-    moment_deficit = cumulative_loading - cumulative_release
+    if len(event_history) > 0:
+        # Get event times and moments
+        event_times_array = np.array([e["time"] for e in event_history])
+        event_moments_array = np.array([e["geom_moment"] for e in event_history])
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+        # For each plot time, find how many events occurred before it
+        for i, t in enumerate(times):
+            mask = event_times_array <= t
+            cumulative_release[i] = np.sum(event_moments_array[mask])
 
-    # Top panel: Cumulative loading vs. release
+    # Convert to seismic moment for plotting
+    cumulative_loading_seismic = cumulative_loading * config.shear_modulus_Pa
+    cumulative_release_seismic = cumulative_release * config.shear_modulus_Pa
+
+    # Create figure
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+
+    # Top panel: Cumulative moment
     ax1.plot(
         times,
-        cumulative_loading,
+        cumulative_loading_seismic,
         "b-",
         linewidth=2,
         label="Cumulative Tectonic Loading",
     )
     ax1.plot(
-        times, cumulative_release, "r-", linewidth=2, label="Cumulative Seismic Release"
+        times,
+        cumulative_release_seismic,
+        "r-",
+        linewidth=2,
+        label="Cumulative Seismic Release",
     )
-
-    ax1.set_ylabel("Cumulative Moment (m³)", fontsize=12)
-    ax1.set_title("Moment Budget: Loading vs. Release", fontsize=14, fontweight="bold")
-    ax1.legend(fontsize=11)
+    ax1.set_xlabel("Time (years)")
+    ax1.set_ylabel("Cumulative Moment (N·m)")
+    ax1.set_title("Moment Budget: Loading vs. Release")
+    ax1.legend()
     ax1.grid(True, alpha=0.3)
 
     # Bottom panel: Moment deficit
+    moment_deficit = cumulative_loading - cumulative_release
     ax2.plot(times, moment_deficit, "purple", linewidth=2)
-    ax2.axhline(0, color="k", linestyle="--", linewidth=0.5)
-
-    ax2.set_xlabel("Time (years)", fontsize=12)
-    ax2.set_ylabel("Moment Deficit (m³)", fontsize=12)
-    ax2.set_title("Accumulated Moment Deficit", fontsize=13, fontweight="bold")
+    ax2.axhline(
+        0,
+        color="k",
+        linestyle="--",
+        linewidth=1,
+        alpha=0.5,
+    )
+    ax2.set_xlabel("Time (years)")
+    ax2.set_ylabel("Moment Deficit (m³)")
+    ax2.set_title("Accumulated Moment Deficit")
     ax2.grid(True, alpha=0.3)
 
     # Compute coupling coefficient
+    max_time = times[-1]
     if max_time > 0:
         total_loaded = cumulative_loading[-1]
         total_released = cumulative_release[-1]
@@ -195,13 +311,38 @@ def plot_moment_budget_analysis(results, config):
         )
 
     plt.tight_layout()
+    plt.savefig(f"{config.output_dir}/moment_budget.png", dpi=150)
+    plt.close()
 
-    # Save
-    output_path = Path(config.output_dir) / "moment_budget.png"
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    print(f"Saved: {output_path}")
-
-    return fig
+    # Debug prints
+    print("\n" + "=" * 70)
+    print("MOMENT BUDGET DIAGNOSTICS")
+    print("=" * 70)
+    print(f"From results dict:")
+    print(
+        f"  results['cumulative_loading']: {results.get('cumulative_loading', 0.0):.2e} m³"
+    )
+    print(
+        f"  results['cumulative_release']: {results.get('cumulative_release', 0.0):.2e} m³"
+    )
+    print(f"\nComputed for plot:")
+    print(f"  initial_moment: {initial_moment:.2e} m³")
+    print(f"  total_loading_rate: {total_loading_rate:.2e} m³/yr")
+    print(f"  duration: {config.duration_years:.0f} years")
+    print(
+        f"  computed loading from rate: {total_loading_rate * config.duration_years:.2e} m³"
+    )
+    print(f"\nAt final time point:")
+    print(f"  cumulative_loading[-1]: {cumulative_loading[-1]:.2e} m³")
+    print(f"  cumulative_release[-1]: {cumulative_release[-1]:.2e} m³")
+    print(f"  coupling: {cumulative_release[-1] / cumulative_loading[-1]:.3f}")
+    print(f"\nFrom simulator printout:")
+    if len(event_history) > 0:
+        sim_coupling = results.get("cumulative_release", 0.0) / results.get(
+            "cumulative_loading", 0.0
+        )
+        print(f"  coupling: {sim_coupling:.3f}")
+    print("=" * 70 + "\n")
 
 
 def plot_event_rate_evolution(results, config):
@@ -540,7 +681,7 @@ def plot_all_diagnostics(results, config):
 
     # NEW PLOTS
     plot_moment_history(results, config)
-    plot_moment_budget_analysis(results, config)
+    plot_moment_budget(results, config)
     plot_event_rate_evolution(results, config)
 
     # Animation (optional, can take time)

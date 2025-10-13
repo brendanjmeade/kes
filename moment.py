@@ -134,18 +134,27 @@ def release_moment(m_current, slip_distribution, element_areas):
     """
     Release moment from earthquake
 
+    Ensures moment never goes negative
+
     Parameters:
     -----------
-    m_current : current geometric moment
+    m_current : current geometric moment (m)
     slip_distribution : coseismic slip on each element (m)
     element_areas : element areas (m²)
 
     Returns:
     --------
-    m_new : updated geometric moment after release
+    m_new : updated geometric moment after release (m)
     """
-    released_moment = slip_distribution * element_areas
-    m_new = m_current - released_moment
+    # Compute released slip per unit area (geometric moment density)
+    # slip has units of meters, which when divided by element area gives m³/m² = m
+    # But m_current has units of meters (geometric moment per unit area)
+    # So we directly subtract slip from m_current
+
+    m_new = m_current - slip_distribution
+
+    # Ensure non-negative (safety check, should already be satisfied by constraint)
+    m_new = np.maximum(m_new, 0.0)
 
     return m_new
 

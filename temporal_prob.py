@@ -1,188 +1,210 @@
 """
-Temporal earthquake rate (not probability!) with loading, Omori, and depletion
-Rate-based approach: λ(t) gives expected events per unit time
+Temporal probability/rate functions for earthquake generation
+
+Adaptive rate formulation: Rate self-corrects to achieve moment balance
 """
 
 import numpy as np
-from moment import magnitude_to_seismic_moment, seismic_moment_to_magnitude
+from moment import magnitude_to_seismic_moment
 
 
 def compute_rate_parameters(config):
     """
-    Compute parameters for linear rate model
+    Compute initial rate parameters based on moment balance
 
-    λ(t) = λ₀ + C_a × Σm(t) + Σ(Omori) - C_r × M_cum^ψ
+    The rate will be adaptively corrected during simulation to ensure
+    perfect moment balance regardless of magnitude distribution details
 
-    All parameters derived from moment balance
-    """
-    print("\n=== LINEAR RATE MODEL (not exponential!) ===")
-
-    # === Step 1: Required average rate from moment balance ===
-
-    geom_loading_rate = (
-        config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
-    )  # m³/year
-    seismic_loading_rate = config.shear_modulus_Pa * geom_loading_rate  # N·m/year
-
-    # Average M0 per event from Gutenberg-Richter
-    M0_max = magnitude_to_seismic_moment(config.M_max)
-    M0_avg = M0_max / (1.5 + config.b_value)
-
-    lambda_required = seismic_loading_rate / M0_avg  # events/year
-
-    print(f"\n=== Target Rate from Moment Balance ===")
-    print(f"  Geom loading rate: {geom_loading_rate:.2e} m³/yr")
-    print(f"  Seismic loading rate: {seismic_loading_rate:.2e} N·m/yr")
-    print(
-        f"  Average event: M {seismic_moment_to_magnitude(M0_avg):.1f} ({M0_avg:.2e} N·m)"
-    )
-    print(
-        f"  Required rate: {lambda_required:.6f} events/yr = 1 per {1 / lambda_required:.0f} yr"
-    )
-
-    # === Step 2: Decompose rate into components ===
-
-    recurrence_time = 1.0 / lambda_required
-    typical_geom_moment = geom_loading_rate * (recurrence_time / 2)
-
-    # Background rate (when no moment accumulated, no aftershocks, no depletion)
-    lambda_0 = lambda_required * 0.1  # 10% background
-
-    # Loading coefficient: contributes 90% of rate at mid-cycle
-    # At mid-cycle: C_a × typical_geom_moment = 0.9 × lambda_required
-    C_a = (0.9 * lambda_required) / typical_geom_moment
-
-    print(f"\n=== Rate Components ===")
-    print(
-        f"  Lambda_0 (background): {lambda_0:.6f} events/yr ({lambda_0 / lambda_required:.1%} of total)"
-    )
-    print(f"  C_a (loading coeff): {C_a:.2e} (m³·yr)⁻¹")
-    print(f"  At mid-cycle moment ({typical_geom_moment:.2e} m³):")
-    print(
-        f"    λ = {lambda_0:.6f} + {C_a * typical_geom_moment:.6f} = {lambda_0 + C_a * typical_geom_moment:.6f} events/yr"
-    )
-
-    # === Step 3: Depletion to balance loading ===
-
-    tau_recovery = recurrence_time
-    M_char_magnitude = config.M_max - 0.5
-    M_char = magnitude_to_seismic_moment(M_char_magnitude)
-
-    accumulated_during_recovery = geom_loading_rate * tau_recovery
-
-    # After M_char event, depletion should suppress rate by comparable amount to loading
-    # -C_r × M_char^ψ ≈ C_a × accumulated_during_recovery
-    C_r = (C_a * accumulated_during_recovery) / (M_char**config.psi)
-
-    print(f"\n=== Depletion Parameters ===")
-    print(f"  Characteristic event: M {M_char_magnitude:.1f} ({M_char:.2e} N·m)")
-    print(f"  Recovery time: {tau_recovery:.1f} years")
-    print(f"  C_r: {C_r:.2e}")
-    print(f"  After M {M_char_magnitude:.1f}:")
-    print(f"    Depletion = -{C_r * M_char**config.psi:.6f} events/yr")
-    print(
-        f"    Ratio to loading: {(C_r * M_char**config.psi) / (C_a * typical_geom_moment):.2f}×"
-    )
-
-    # === Verification ===
-
-    print(f"\n=== Self-Consistency Check ===")
-    print(f"  At t=0 (no moment): λ = {lambda_0:.6f} events/yr")
-    print(f"  At mid-cycle: λ = {lambda_0 + C_a * typical_geom_moment:.6f} events/yr")
-    print(f"  Target average rate: {lambda_required:.6f} events/yr")
-
-    print(f"\n=== Moment Balance ===")
-    print(f"  Input: {seismic_loading_rate:.2e} N·m/yr")
-    print(
-        f"  Output: {lambda_required:.6f}/yr × {M0_avg:.2e} N·m = {lambda_required * M0_avg:.2e} N·m/yr"
-    )
-    print(f"  Ratio: {(lambda_required * M0_avg) / seismic_loading_rate:.3f}")
-
-    # === Rate examples ===
-
-    print(f"\n=== Rate Examples (LINEAR model) ===")
-    for m_example in [
-        0,
-        typical_geom_moment / 2,
-        typical_geom_moment,
-        typical_geom_moment * 2,
-    ]:
-        rate = lambda_0 + C_a * m_example
-        print(f"  Σm = {m_example:.2e} m³: λ = {rate:.6f} events/yr")
-
-    return lambda_0, C_a, C_r
-
-
-def earthquake_rate(m_current, event_history, current_time, config):
-    """
-    Compute instantaneous earthquake rate λ(t) in events/year
-
-    LINEAR MODEL: λ(t) = λ₀ + C_a·Σm + Σ(Omori) - C_r·M_cum^ψ
+    Parameters:
+    -----------
+    config : Config object
 
     Returns:
     --------
-    lambda_t : earthquake rate (events per year)
-    components : dict with breakdown
+    C : float
+        Base rate coefficient (events/year per m³ of accumulated moment)
     """
-    # Component 1: Background
-    rate_background = config.lambda_0
 
-    # Component 2: Loading (from geometric moment)
-    total_geom_moment = np.sum(m_current)  # m³
-    rate_loading = config.C_a * total_geom_moment  # events/year
+    # Estimate equilibrium accumulated moment
+    geom_loading_rate = (
+        config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
+    )
 
-    # Component 3: Omori aftershocks
-    rate_omori = 0.0
-    for event in event_history:
-        dt_days = (current_time - event["time"]) * 365.25
-        if 0 < dt_days < 365.25 * 10:  # Only last 10 years
-            # Productivity scales with magnitude
-            beta_omori = config.omori_beta_0 * 10 ** (
-                config.omori_alpha_beta * event["magnitude"]
-            )
+    # Estimate a "characteristic" recurrence time
+    M0_char = magnitude_to_seismic_moment(config.M_max)
+    geom_moment_char = M0_char / config.shear_modulus_Pa
+    recurrence_time_char = geom_moment_char / geom_loading_rate
 
-            # Omori decay gives RATE (events/year)
-            # Need to convert from days⁻¹ to year⁻¹
-            rate_omori += (
-                beta_omori / (dt_days + config.omori_c_days) ** config.omori_p * 365.25
-            )
+    # At equilibrium, accumulated moment is roughly half-cycle
+    geom_moment_equilibrium = geom_loading_rate * (recurrence_time_char / 2)
 
-    # Component 4: Moment depletion (from seismic moment)
-    if len(event_history) > 0:
-        # Only recent events (last 50 years)
-        recent_events = [e for e in event_history if (current_time - e["time"]) < 50.0]
-        if len(recent_events) > 0:
-            M_cumulative = sum([e["M0"] for e in recent_events])  # N·m
-            rate_depletion = -config.C_r * M_cumulative**config.psi
-        else:
-            rate_depletion = 0.0
+    # Choose initial target rate at equilibrium
+    # Start conservative - adaptive correction will optimize this
+    if config.M_min < 5.0:
+        lambda_target = 5.0  # events/year
+    elif config.M_min < 6.0:
+        lambda_target = 2.0
+    elif config.M_min < 7.0:
+        lambda_target = 0.5
     else:
-        rate_depletion = 0.0
+        lambda_target = 0.2
 
-    # Combine (linear sum!)
-    lambda_t = rate_background + rate_loading + rate_omori + rate_depletion
+    # Compute initial C
+    C = lambda_target / geom_moment_equilibrium
 
-    # Floor at minimum rate (can't be negative)
-    lambda_t = max(config.lambda_min, lambda_t)
+    # Store for diagnostics
+    config.C_rate_base = C
+    config.geom_moment_equilibrium = geom_moment_equilibrium
+    config.lambda_target = lambda_target
+    config.recurrence_time_char = recurrence_time_char
 
-    # DEBUG: Print occasionally
-    if (
-        current_time > 0
-        and int(current_time) % 100 == 0
-        and abs(current_time - int(current_time)) < 0.01
-    ):
-        print(f"\nt={current_time:.1f}yr: Σm={total_geom_moment:.2e} m³")
+    # Initialize adaptive correction factor
+    config.rate_correction_factor = 1.0
+    config.coupling_history = []
+
+    print("\n" + "=" * 70)
+    print("ADAPTIVE MOMENT-BASED RATE MODEL")
+    print("=" * 70)
+    print(f"  Geometric loading rate: {geom_loading_rate:.2e} m³/yr")
+    print(
+        f"  Seismic loading rate: {config.shear_modulus_Pa * geom_loading_rate:.2e} N·m/yr"
+    )
+    print(f"  Characteristic M_max event: M {config.M_max:.1f} ({M0_char:.2e} N·m)")
+    print(f"  Estimated recurrence time: {recurrence_time_char:.1f} years")
+    print(f"\n  Equilibrium accumulated moment: {geom_moment_equilibrium:.2e} m³")
+    print(f"  Initial target rate at equilibrium: {lambda_target:.3f} events/year")
+    print(f"  Base rate coefficient C: {C:.3e} (events/yr)/(m³)")
+    print(f"\n  λ(t) = C × correction_factor(t) × moment_deficit(t)")
+    print(f"  Rate will adapt to maintain moment balance")
+    print("=" * 70)
+
+    return C
+
+
+def update_rate_correction(
+    config, cumulative_loading, cumulative_release, current_time
+):
+    """
+    Update adaptive rate correction factor based on observed coupling
+
+    Uses proportional control to drive coupling toward 1.0
+
+    Parameters:
+    -----------
+    config : Config object
+    cumulative_loading : float
+        Total geometric moment loaded (m³)
+    cumulative_release : float
+        Total geometric moment released (m³)
+    current_time : float
+        Current simulation time (years)
+
+    Returns:
+    --------
+    None (updates config.rate_correction_factor in place)
+    """
+    if cumulative_loading <= 0:
+        return
+
+    # Compute observed coupling
+    observed_coupling = cumulative_release / cumulative_loading
+    config.coupling_history.append(
+        {
+            "time": current_time,
+            "coupling": observed_coupling,
+            "correction_factor": config.rate_correction_factor,
+        }
+    )
+
+    # Target coupling
+    target_coupling = 1.0
+    coupling_error = target_coupling - observed_coupling
+
+    # Proportional control with conservative gain
+    # Increase rate if under-releasing, decrease if over-releasing
+    gain = 0.1  # Conservative - adjust slowly
+    adjustment = gain * coupling_error
+
+    config.rate_correction_factor += adjustment
+
+    # Bound correction factor to reasonable range
+    config.rate_correction_factor = max(0.1, min(10.0, config.rate_correction_factor))
+
+    # Log adjustment
+    if len(config.coupling_history) % 10 == 0:  # Every 10 updates
         print(
-            f"  λ = {rate_background:.6f} (bkgd) + {rate_loading:.6f} (load) + "
-            f"{rate_omori:.6f} (omori) + {rate_depletion:.6f} (depl) = {lambda_t:.6f} events/yr"
+            f"  Rate correction update at t={current_time:.0f} yr: "
+            f"coupling={observed_coupling:.3f}, "
+            f"correction_factor={config.rate_correction_factor:.3f}"
         )
 
+
+def earthquake_rate(
+    m_current,
+    event_history,
+    current_time,
+    config,
+    cumulative_loading,
+    cumulative_release,
+):
+    """
+    Compute instantaneous earthquake rate based on moment deficit
+
+    λ(t) = C_base × correction_factor(t) × max(0, moment_deficit)
+
+    The correction factor adapts to ensure moment balance
+
+    Parameters:
+    -----------
+    m_current : array
+        Current geometric moment (m³) at each element
+    event_history : list
+        List of past events
+    current_time : float
+        Current simulation time (years)
+    config : Config object
+    cumulative_loading : float
+        Total geometric moment loaded since t=0 (m³)
+    cumulative_release : float
+        Total geometric moment released by events (m³)
+
+    Returns:
+    --------
+    lambda_t : float
+        Instantaneous earthquake rate (events/year)
+    components : dict
+        Breakdown of rate components
+    """
+
+    # Moment deficit (should always be ≥ 0)
+    moment_deficit = cumulative_loading - cumulative_release
+    moment_deficit = max(0.0, moment_deficit)
+
+    # Base rate proportional to moment deficit, with adaptive correction
+    lambda_loading = config.C_rate_base * config.rate_correction_factor * moment_deficit
+
+    # Aftershock rate (Omori decay) - optional
+    lambda_aftershock = 0.0
+    if len(event_history) > 0 and hasattr(config, "omori_law") and config.omori_law:
+        for event in event_history:
+            dt = current_time - event["time"]
+            if dt > 0:
+                M0_event = event["M0"]
+                omori_amplitude = config.omori_c_rate * (
+                    M0_event / magnitude_to_seismic_moment(config.M_max)
+                )
+                lambda_aftershock += omori_amplitude / (dt + config.omori_c_time)
+
+    # Total rate
+    lambda_t = lambda_loading + lambda_aftershock
+    lambda_t = max(0.0, lambda_t)
+
+    # Components for diagnostics
     components = {
-        "rate_background": rate_background,
-        "rate_loading": rate_loading,
-        "rate_omori": rate_omori,
-        "rate_depletion": rate_depletion,
-        "total_geom_moment": total_geom_moment,
+        "loading": lambda_loading,
+        "aftershock": lambda_aftershock,
+        "moment_deficit": moment_deficit,
+        "correction_factor": config.rate_correction_factor,
     }
 
     return lambda_t, components
