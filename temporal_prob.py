@@ -134,15 +134,17 @@ def update_rate_correction(
     target_coupling = 1.0
     coupling_error = target_coupling - observed_coupling
 
-    # Proportional control with moderate gain
+    # Proportional control with gain from config
     # Increase rate if under-releasing, decrease if over-releasing
-    gain = 0.5  # Increased from 0.1 for faster convergence
-    adjustment = gain * coupling_error
+    adjustment = config.adaptive_correction_gain * coupling_error
 
     config.rate_correction_factor += adjustment
 
-    # Bound correction factor to reasonable range
-    config.rate_correction_factor = max(0.1, min(10.0, config.rate_correction_factor))
+    # Bound correction factor to reasonable range from config
+    config.rate_correction_factor = max(
+        config.correction_factor_min,
+        min(config.correction_factor_max, config.rate_correction_factor),
+    )
 
     # Log adjustment - ALWAYS print for diagnostics
     print(

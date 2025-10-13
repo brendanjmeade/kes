@@ -93,9 +93,10 @@ def initialize_moment(config, mesh):
     lambda_required = seismic_loading_rate / M0_avg
     recurrence_time = 1.0 / lambda_required
 
-    # Start at 50% of the way to mid-cycle
-    # Mid-cycle is at recurrence_time/2, so 50% of that is recurrence_time/4
-    initial_time_equivalent = recurrence_time / 4  # years
+    # Spin-up: Start partway through earthquake cycle
+    # Use spinup_fraction from config (e.g., 0.25 means 25% of mid-cycle)
+    # Mid-cycle is at recurrence_time/2, so fraction of that is recurrence_time * (fraction/2)
+    initial_time_equivalent = recurrence_time * config.spinup_fraction
 
     # Accumulate moment for this equivalent time
     m_current = slip_rate * config.element_area_m2 * initial_time_equivalent

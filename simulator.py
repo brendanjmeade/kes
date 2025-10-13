@@ -95,10 +95,10 @@ def run_simulation(config):
     cumulative_loading = 0.0  # FIX: Start at zero, add initial moment to first update
     cumulative_release = 0.0  # No events yet
 
-    # Adaptive correction update interval
+    # Adaptive correction update interval from config
     correction_update_interval = int(
-        100 * 365.25 / config.time_step_days
-    )  # Every 100 years (increased from 1000 for faster response)
+        config.correction_update_years * 365.25 / config.time_step_days
+    )
 
     print("\n" + "=" * 70)
     print("RUNNING SIMULATION")
@@ -109,13 +109,9 @@ def run_simulation(config):
     print(f"  Initial moment (spin-up): {initial_moment:.2e} m³")
     print(f"  Cumulative loading accounting: starts at 0.0 m³")
     print(
-        f"  Rate correction update interval: {correction_update_interval * dt_years:.0f} years"
+        f"  Rate correction update interval: {config.correction_update_years:.0f} years"
     )
     print("=" * 70 + "\n")
-
-    # Diagnostics: Track expected vs actual loading
-    total_loading_rate = np.sum(slip_rate * config.element_area_m2)
-    print(f"DEBUG: Total loading rate = {total_loading_rate:.2e} m³/yr")
 
     # Simulation loop
     for i, current_time in enumerate(tqdm(times, desc="Simulating")):

@@ -35,17 +35,14 @@ class Config:
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
-    M_min = 4.0  # Minimum magnitude
+    M_min = 5.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
-    # === TEMPORAL PROBABILITY ===
-    # === TEMPORAL RATE (LINEAR MODEL) ===
-    lambda_0 = None  # Background rate (events/year) - computed
-    C_a = None  # Loading coefficient - computed
-    C_r = None  # Depletion coefficient - computed
-
-    # Rate bounds
-    lambda_min = 1e-6  # Minimum rate (events/year)
+    # === ADAPTIVE RATE CORRECTION ===
+    adaptive_correction_gain = 0.5  # Proportional control gain for coupling correction
+    correction_factor_min = 0.1  # Minimum allowed correction factor
+    correction_factor_max = 10.0  # Maximum allowed correction factor
+    correction_update_years = 100.0  # Update correction factor every N years
 
     # === OMORI AFTERSHOCK PARAMETERS ===
     # Standard Omori-Utsu law: λ_aftershock(t) = K / (t + c)^p
@@ -56,20 +53,22 @@ class Config:
     omori_K_ref = 0.1  # Productivity (events/year) for M=6 mainshock
     omori_M_ref = 6.0  # Reference magnitude for productivity
     omori_alpha = 0.8  # Magnitude scaling (Reasenberg & Jones 1989)
-    omori_duration_years = 10.0  # Only track aftershocks for this many years after mainshock
+    omori_duration_years = (
+        10.0  # Only track aftershocks for this many years after mainshock
+    )
 
-    # Depletion
-    psi = 2.0 / 3.0
+    # === MOMENT INITIALIZATION ===
+    spinup_fraction = 0.25  # Initialize with this fraction of mid-cycle moment (0.25 = recurrence_time/4)
 
-    # Wrapping function parameters
-    # lambda_min = 1e-6  # Minimum event rate
-    # lambda_max = 1.0  # Increased from 0.05 to 1.0
-    # gamma_temporal = 1.0  # Keep at 1.0 since we rescaled C_a
+    # === SLIP DISTRIBUTION ===
+    slip_decay_rate = 2.0  # Exponential decay rate of slip from hypocenter
+    slip_heterogeneity = 0.3  # Random perturbation amplitude (±30%)
+
     # === GUTENBERG-RICHTER ===
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 3000.0
+    duration_years = 1000.0
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility

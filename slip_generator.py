@@ -151,11 +151,13 @@ def generate_heterogeneous_slip_pattern(
     # Use exponential decay × random factor
     normalized_dist = distances / max_dist
 
-    # Base pattern: exponential taper
-    base_slip = np.exp(-2 * normalized_dist)
+    # Base pattern: exponential taper (rate from config)
+    base_slip = np.exp(-config.slip_decay_rate * normalized_dist)
 
-    # Add random perturbations (±30%)
-    random_factor = 1.0 + 0.3 * (2 * np.random.random(len(ruptured_elements)) - 1)
+    # Add random perturbations (amplitude from config)
+    random_factor = 1.0 + config.slip_heterogeneity * (
+        2 * np.random.random(len(ruptured_elements)) - 1
+    )
 
     slip_values = base_slip * random_factor
 
