@@ -35,7 +35,7 @@ class Config:
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
-    M_min = 6.0  # Minimum magnitude
+    M_min = 4.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
     # === TEMPORAL PROBABILITY ===
@@ -47,11 +47,16 @@ class Config:
     # Rate bounds
     lambda_min = 1e-6  # Minimum rate (events/year)
 
-    # Omori parameters
-    omori_p = 1.0
-    omori_c_days = 1.0
-    omori_alpha_beta = 0.8
-    omori_beta_0 = 1e-12  # Very conservative to start
+    # === OMORI AFTERSHOCK PARAMETERS ===
+    # Standard Omori-Utsu law: λ_aftershock(t) = K / (t + c)^p
+    # where K scales with mainshock magnitude: K = K_ref × 10^(alpha × (M - M_ref))
+    omori_enabled = True  # Enable/disable aftershock sequences
+    omori_p = 1.0  # Decay exponent (typically ~1.0)
+    omori_c_days = 1.0  # Time offset in days (will be converted to years)
+    omori_K_ref = 0.1  # Productivity (events/year) for M=6 mainshock
+    omori_M_ref = 6.0  # Reference magnitude for productivity
+    omori_alpha = 0.8  # Magnitude scaling (Reasenberg & Jones 1989)
+    omori_duration_years = 10.0  # Only track aftershocks for this many years after mainshock
 
     # Depletion
     psi = 2.0 / 3.0
@@ -64,7 +69,7 @@ class Config:
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 30000.0
+    duration_years = 3000.0
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility

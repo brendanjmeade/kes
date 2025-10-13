@@ -221,34 +221,43 @@ def plot_moment_budget(results, config):
     else:
         times = np.linspace(0, config.duration_years, 1000)
 
-    # Cumulative tectonic loading (geometric moment)
-    total_loading_rate = (
-        config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
-    )
+    # FIX: Use authoritative cumulative values from simulator
+    # These correctly account for all moment including initial spin-up
+    if "cumulative_loading" in results and "cumulative_release" in results:
+        # Get final values from simulator
+        final_loading = results["cumulative_loading"]
 
-    # Include initial moment from spin-up
-    initial_moment = results.get("cumulative_loading", 0.0) - (
-        total_loading_rate * config.duration_years
-    )
+        # Create time array for plotting
+        final_time = config.duration_years
 
-    # cumulative_loading = initial_moment + times * total_loading_rate  # m³
+        # Linear loading over time (constant rate)
+        cumulative_loading = times * (final_loading / final_time)
 
-    # NEW (correct):
-    cumulative_loading = times * total_loading_rate  # m³ - starts at zero
+        # Release: step function at each event time
+        cumulative_release = np.zeros_like(times)
+        if len(event_history) > 0:
+            event_times_array = np.array([e["time"] for e in event_history])
+            event_moments_array = np.array([e["geom_moment"] for e in event_history])
 
-    # Cumulative seismic release (geometric moment)
-    # Build efficiently using cumsum
-    cumulative_release = np.zeros_like(times)
+            for i, t in enumerate(times):
+                mask = event_times_array <= t
+                cumulative_release[i] = np.sum(event_moments_array[mask])
+    else:
+        # Fallback: reconstruct from loading rate (old method, less accurate)
+        print("WARNING: Using fallback loading calculation (cumulative values not in results)")
+        total_loading_rate = (
+            config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
+        )
+        cumulative_loading = times * total_loading_rate
 
-    if len(event_history) > 0:
-        # Get event times and moments
-        event_times_array = np.array([e["time"] for e in event_history])
-        event_moments_array = np.array([e["geom_moment"] for e in event_history])
+        cumulative_release = np.zeros_like(times)
+        if len(event_history) > 0:
+            event_times_array = np.array([e["time"] for e in event_history])
+            event_moments_array = np.array([e["geom_moment"] for e in event_history])
 
-        # For each plot time, find how many events occurred before it
-        for i, t in enumerate(times):
-            mask = event_times_array <= t
-            cumulative_release[i] = np.sum(event_moments_array[mask])
+            for i, t in enumerate(times):
+                mask = event_times_array <= t
+                cumulative_release[i] = np.sum(event_moments_array[mask])
 
     # Convert to seismic moment for plotting
     cumulative_loading_seismic = cumulative_loading * config.shear_modulus_Pa
@@ -314,34 +323,34 @@ def plot_moment_budget(results, config):
     plt.savefig(f"{config.output_dir}/moment_budget.png", dpi=150)
     plt.close()
 
-    # Debug prints
+    # Debug prints - verify coupling agreement
     print("\n" + "=" * 70)
-    print("MOMENT BUDGET DIAGNOSTICS")
+    print("MOMENT BUDGET PLOT DIAGNOSTICS")
     print("=" * 70)
-    print(f"From results dict:")
-    print(
-        f"  results['cumulative_loading']: {results.get('cumulative_loading', 0.0):.2e} m³"
-    )
-    print(
-        f"  results['cumulative_release']: {results.get('cumulative_release', 0.0):.2e} m³"
-    )
-    print(f"\nComputed for plot:")
-    print(f"  initial_moment: {initial_moment:.2e} m³")
-    print(f"  total_loading_rate: {total_loading_rate:.2e} m³/yr")
-    print(f"  duration: {config.duration_years:.0f} years")
-    print(
-        f"  computed loading from rate: {total_loading_rate * config.duration_years:.2e} m³"
-    )
-    print(f"\nAt final time point:")
+    print(f"From simulator results dict (authoritative):")
+    sim_loading = results.get("cumulative_loading", 0.0)
+    sim_release = results.get("cumulative_release", 0.0)
+    print(f"  cumulative_loading: {sim_loading:.2e} m³")
+    print(f"  cumulative_release: {sim_release:.2e} m³")
+    if sim_loading > 0:
+        sim_coupling = sim_release / sim_loading
+        print(f"  coupling: {sim_coupling:.4f}")
+
+    print(f"\nPlot final values (should match):")
     print(f"  cumulative_loading[-1]: {cumulative_loading[-1]:.2e} m³")
     print(f"  cumulative_release[-1]: {cumulative_release[-1]:.2e} m³")
-    print(f"  coupling: {cumulative_release[-1] / cumulative_loading[-1]:.3f}")
-    print(f"\nFrom simulator printout:")
-    if len(event_history) > 0:
-        sim_coupling = results.get("cumulative_release", 0.0) / results.get(
-            "cumulative_loading", 0.0
-        )
-        print(f"  coupling: {sim_coupling:.3f}")
+    if cumulative_loading[-1] > 0:
+        plot_coupling = cumulative_release[-1] / cumulative_loading[-1]
+        print(f"  coupling: {plot_coupling:.4f}")
+
+    if sim_loading > 0 and cumulative_loading[-1] > 0:
+        loading_match = abs(cumulative_loading[-1] - sim_loading) / sim_loading < 0.01
+        release_match = abs(cumulative_release[-1] - sim_release) / sim_release < 0.01
+        coupling_match = abs(plot_coupling - sim_coupling) < 0.01
+        print(f"\nAgreement check:")
+        print(f"  Loading match: {loading_match} (Δ={(cumulative_loading[-1] - sim_loading)/sim_loading*100:.2f}%)")
+        print(f"  Release match: {release_match} (Δ={(cumulative_release[-1] - sim_release)/sim_release*100:.2f}%)")
+        print(f"  Coupling match: {coupling_match} (Δ={(plot_coupling - sim_coupling)*100:.2f}%)")
     print("=" * 70 + "\n")
 
 
@@ -558,44 +567,53 @@ def plot_cumulative_slip_map(results, config):
     # Reshape to 2D
     slip_grid = cumulative_slip.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
 
+    # DIAGNOSTIC: Analyze slip distribution before plotting
+    slip_profile_along_strike = np.sum(slip_grid, axis=1)  # Integrate over depth
+    max_slip_idx = np.argmax(slip_profile_along_strike)
+    max_slip_x = max_slip_idx * config.element_size_km
+    print(f"\nCumulative Slip Diagnostics:")
+    print(f"  Slip maximum at x = {max_slip_x:.1f} km (expected: 100.0 km)")
+    print(f"  Offset from pulse center: {abs(max_slip_x - 100.0):.1f} km")
+
     fig, ax = plt.subplots(figsize=(12, 2))
 
     to_plot = np.log10(slip_grid.T)
     min_val = np.nanmin(to_plot)
     to_plot[~np.isfinite(to_plot)] = min_val
 
+    # FIX: Use origin="lower" for standard coordinates (no inversion needed)
     im = ax.imshow(
         to_plot,
-        origin="upper",
+        origin="lower",
         aspect="auto",
         extent=[0, config.fault_length_km, 0, config.fault_depth_km],
         cmap="hot_r",
     )
-    ax.invert_yaxis()
 
     ax.set_xlabel("$x$ (km)", fontsize=12)
     ax.set_ylabel("$d$ (km)", fontsize=12)
-    ax.set_title("Cumulative coseismic clip", fontsize=12)
+    ax.set_title("Cumulative coseismic slip", fontsize=12)
 
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label("slip (m)", fontsize=11)
+    cbar.set_label("log$_{10}$ slip (m)", fontsize=11)
 
-    # # Mark hypocenters
-    # hypo_x = [e["hypocenter_x_km"] for e in event_history]
-    # hypo_z = [e["hypocenter_z_km"] for e in event_history]
-    # ax.scatter(
-    #     hypo_x,
-    #     hypo_z,
-    #     c="cyan",
-    #     s=5,
-    #     marker=".",
-    #     edgecolors="black",
-    #     linewidth=0.25,
-    #     alpha=0.7,
-    #     label="Hypocenters",
-    # )
+    # Mark pulse center (where moment accumulates fastest)
+    ax.axvline(100.0, color='cyan', linestyle='--', linewidth=2, alpha=0.8, label='Pulse Center (x=100 km)')
 
-    # ax.legend()
+    # Mark hypocenters to show where events nucleate
+    hypo_x = [e["hypocenter_x_km"] for e in event_history]
+    hypo_z = [e["hypocenter_z_km"] for e in event_history]
+    ax.scatter(
+        hypo_x,
+        hypo_z,
+        c="lime",
+        s=3,
+        marker=".",
+        alpha=0.3,
+        label=f"Hypocenters (n={len(hypo_x)})",
+    )
+
+    ax.legend(fontsize=9, loc='upper right')
     plt.tight_layout()
 
     # Save

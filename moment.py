@@ -41,12 +41,19 @@ def initialize_moment(config, mesh):
         for pulse in config.moment_pulses:
             # Get pulse parameters from the pulse dict/tuple
             if isinstance(pulse, dict):
-                center_x = pulse.get(
+                # FIX: Use correct key names with _km and _mm_yr suffixes
+                center_x = pulse.get("center_x_km", pulse.get(
                     "center_x", np.random.uniform(0, config.fault_length_km)
-                )
-                center_z = pulse.get("center_z", config.fault_depth_km / 2)
-                amplitude = pulse.get("amplitude", config.background_slip_rate_m_yr)
-                width = pulse.get("width_km", 20.0)
+                ))
+                center_z = pulse.get("center_z_km", pulse.get(
+                    "center_z", config.fault_depth_km / 2
+                ))
+                # Convert amplitude from mm/yr to m/yr
+                amplitude_mm_yr = pulse.get("amplitude_mm_yr", pulse.get(
+                    "amplitude", config.background_slip_rate_m_yr * 1000
+                ))
+                amplitude = amplitude_mm_yr / 1000.0  # Convert to m/yr
+                width = pulse.get("sigma_km", pulse.get("width_km", 20.0))
             else:
                 # Default: random location
                 center_x = np.random.uniform(0, config.fault_length_km)

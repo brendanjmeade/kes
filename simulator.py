@@ -91,13 +91,14 @@ def run_simulation(config):
     event_debt = 0.0
 
     # Track cumulative moment for rate calculation
-    cumulative_loading = np.sum(m_current)  # Start with initial moment
+    initial_moment = np.sum(m_current)
+    cumulative_loading = 0.0  # FIX: Start at zero, add initial moment to first update
     cumulative_release = 0.0  # No events yet
 
     # Adaptive correction update interval
     correction_update_interval = int(
-        1000 * 365.25 / config.time_step_days
-    )  # Every 1000 years
+        100 * 365.25 / config.time_step_days
+    )  # Every 100 years (increased from 1000 for faster response)
 
     print("\n" + "=" * 70)
     print("RUNNING SIMULATION")
@@ -105,11 +106,16 @@ def run_simulation(config):
     print(f"  Time steps: {config.n_time_steps}")
     print(f"  Time step size: {config.time_step_days} days = {dt_years:.6f} years")
     print("  Event generation: Deterministic accumulator with adaptive rate")
-    print(f"  Initial moment: {cumulative_loading:.2e} m³")
+    print(f"  Initial moment (spin-up): {initial_moment:.2e} m³")
+    print(f"  Cumulative loading accounting: starts at 0.0 m³")
     print(
         f"  Rate correction update interval: {correction_update_interval * dt_years:.0f} years"
     )
     print("=" * 70 + "\n")
+
+    # Diagnostics: Track expected vs actual loading
+    total_loading_rate = np.sum(slip_rate * config.element_area_m2)
+    print(f"DEBUG: Total loading rate = {total_loading_rate:.2e} m³/yr")
 
     # Simulation loop
     for i, current_time in enumerate(tqdm(times, desc="Simulating")):
@@ -122,13 +128,8 @@ def run_simulation(config):
         moment_added = np.sum(slip_rate * config.element_area_m2) * dt_years
         cumulative_loading += moment_added
 
-        # Update adaptive rate correction periodically
-        if i % correction_update_interval == 0 and i > 0:
-            update_rate_correction(
-                config, cumulative_loading, cumulative_release, current_time
-            )
-
         # Compute instantaneous rate based on moment deficit
+        # NOTE: Correction update moved to END of loop (after events)
         lambda_t, components = earthquake_rate(
             m_current,
             event_history,
@@ -265,9 +266,21 @@ def run_simulation(config):
                         f"Event 1: t={current_time:.2f} yr, M={M_actual:.2f}, λ={lambda_t:.6f}/yr"
                     )
                 elif len(event_history) % 100 == 0:
+                    aftershock_info = ""
+                    if components["aftershock"] > 0:
+                        aftershock_info = f", aftershock λ={components['aftershock']:.4f}/yr ({components['n_active_sequences']} sequences)"
                     tqdm.write(
                         f"Event {len(event_history)}: t={current_time:.2f} yr, M={M_actual:.2f}, "
-                        f"coupling={cumulative_release / cumulative_loading:.3f}"
+                        f"coupling={cumulative_release / cumulative_loading:.3f}{aftershock_info}"
+                    )
+
+                # Print diagnostic for large events that will trigger significant aftershocks
+                if M_actual >= 6.5 and hasattr(config, "omori_enabled") and config.omori_enabled:
+                    K = config.omori_K_ref * 10 ** (
+                        config.omori_alpha * (M_actual - config.omori_M_ref)
+                    )
+                    tqdm.write(
+                        f"  → Large event (M={M_actual:.2f}) will trigger aftershocks with productivity K={K:.3f} events/yr"
                     )
             # Update m_current with all releases from this timestep
             m_current = m_working
@@ -277,9 +290,25 @@ def run_simulation(config):
             moment_snapshots.append(m_current.copy())
             snapshot_times.append(current_time)
 
+        # FIX: Update adaptive rate correction periodically AFTER events are generated
+        # This ensures correction sees actual coupling from completed events
+        if i % correction_update_interval == 0 and i > 0:
+            update_rate_correction(
+                config, cumulative_loading, cumulative_release, current_time
+            )
+
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
     print(f"  Total events: {len(event_history)}")
+
+    # Diagnostic: correction update statistics
+    expected_updates = int(config.duration_years / 100)
+    actual_updates = len(config.coupling_history)
+    print(f"\n  Adaptive Correction Updates:")
+    print(f"    Expected: {expected_updates} (every 100 years)")
+    print(f"    Actual: {actual_updates}")
+    print(f"    Match: {actual_updates == expected_updates}")
+
     if len(event_history) > 0:
         total_M0_released = sum(e["M0"] for e in event_history)
         total_M0_loaded = (
@@ -290,13 +319,14 @@ def run_simulation(config):
         )
         coupling = total_M0_released / total_M0_loaded
         print(
-            f"  Average rate: {len(event_history) / config.duration_years:.6f} events/year"
+            f"\n  Average rate: {len(event_history) / config.duration_years:.6f} events/year"
         )
-        print(f"  Final seismic coupling: {coupling:.3f}")
-        print(f"  Final correction factor: {config.rate_correction_factor:.3f}")
+        print(f"  Final seismic coupling: {coupling:.4f}")
+        print(f"  Final correction factor: {config.rate_correction_factor:.4f}")
         print(f"  Cumulative loading: {cumulative_loading:.2e} m³")
         print(f"  Cumulative release: {cumulative_release:.2e} m³")
         print(f"  Final deficit: {cumulative_loading - cumulative_release:.2e} m³")
+        print(f"  Geometric coupling: {cumulative_release / cumulative_loading:.4f}")
     else:
         print(f"  WARNING: No events generated!")
     print("=" * 70)

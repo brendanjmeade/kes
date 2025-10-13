@@ -74,8 +74,22 @@ def compute_rate_parameters(config):
     print(f"\n  Equilibrium accumulated moment: {geom_moment_equilibrium:.2e} m³")
     print(f"  Initial target rate at equilibrium: {lambda_target:.3f} events/year")
     print(f"  Base rate coefficient C: {C:.3e} (events/yr)/(m³)")
-    print(f"\n  λ(t) = C × correction_factor(t) × moment_deficit(t)")
+    print(f"\n  λ(t) = C × correction_factor(t) × moment_deficit(t) + λ_aftershock(t)")
     print(f"  Rate will adapt to maintain moment balance")
+
+    # Print Omori aftershock parameters if enabled
+    if hasattr(config, "omori_enabled") and config.omori_enabled:
+        print(f"\n  OMORI AFTERSHOCKS ENABLED:")
+        print(f"    Law: λ_aftershock = K / (t + c)^p")
+        print(f"    p = {config.omori_p:.2f}")
+        print(f"    c = {config.omori_c_days:.2f} days")
+        print(f"    K_ref = {config.omori_K_ref:.3f} events/yr (at M={config.omori_M_ref:.1f})")
+        print(f"    α = {config.omori_alpha:.2f} (magnitude scaling)")
+        print(f"    Duration: {config.omori_duration_years:.1f} years per sequence")
+        K_M7 = config.omori_K_ref * 10 ** (config.omori_alpha * (7.0 - config.omori_M_ref))
+        print(f"    Example: M7.0 → K = {K_M7:.3f} events/yr")
+    else:
+        print(f"\n  OMORI AFTERSHOCKS DISABLED")
     print("=" * 70)
 
     return C
@@ -120,9 +134,9 @@ def update_rate_correction(
     target_coupling = 1.0
     coupling_error = target_coupling - observed_coupling
 
-    # Proportional control with conservative gain
+    # Proportional control with moderate gain
     # Increase rate if under-releasing, decrease if over-releasing
-    gain = 0.1  # Conservative - adjust slowly
+    gain = 0.5  # Increased from 0.1 for faster convergence
     adjustment = gain * coupling_error
 
     config.rate_correction_factor += adjustment
@@ -130,13 +144,13 @@ def update_rate_correction(
     # Bound correction factor to reasonable range
     config.rate_correction_factor = max(0.1, min(10.0, config.rate_correction_factor))
 
-    # Log adjustment
-    if len(config.coupling_history) % 10 == 0:  # Every 10 updates
-        print(
-            f"  Rate correction update at t={current_time:.0f} yr: "
-            f"coupling={observed_coupling:.3f}, "
-            f"correction_factor={config.rate_correction_factor:.3f}"
-        )
+    # Log adjustment - ALWAYS print for diagnostics
+    print(
+        f"  [CORRECTION UPDATE #{len(config.coupling_history)}] t={current_time:.0f} yr: "
+        f"coupling={observed_coupling:.4f}, error={coupling_error:.4f}, "
+        f"adjustment={adjustment:.4f}, "
+        f"factor: {config.rate_correction_factor - adjustment:.4f} → {config.rate_correction_factor:.4f}"
+    )
 
 
 def earthquake_rate(
@@ -183,17 +197,35 @@ def earthquake_rate(
     # Base rate proportional to moment deficit, with adaptive correction
     lambda_loading = config.C_rate_base * config.rate_correction_factor * moment_deficit
 
-    # Aftershock rate (Omori decay) - optional
+    # Aftershock rate (Omori-Utsu decay)
     lambda_aftershock = 0.0
-    if len(event_history) > 0 and hasattr(config, "omori_law") and config.omori_law:
+    n_active_sequences = 0
+
+    if (
+        len(event_history) > 0
+        and hasattr(config, "omori_enabled")
+        and config.omori_enabled
+    ):
+        # Convert c from days to years for consistent units
+        omori_c_years = config.omori_c_days / 365.25
+
+        # Loop only over recent events (performance optimization)
         for event in event_history:
-            dt = current_time - event["time"]
-            if dt > 0:
-                M0_event = event["M0"]
-                omori_amplitude = config.omori_c_rate * (
-                    M0_event / magnitude_to_seismic_moment(config.M_max)
+            dt_years = current_time - event["time"]
+
+            # Only consider events within aftershock duration window
+            if 0 < dt_years <= config.omori_duration_years:
+                n_active_sequences += 1
+
+                # Omori-Utsu law: λ(t) = K / (t + c)^p
+                # K scales with mainshock magnitude: K = K_ref × 10^(alpha × (M - M_ref))
+                M_mainshock = event["magnitude"]
+                K = config.omori_K_ref * 10 ** (
+                    config.omori_alpha * (M_mainshock - config.omori_M_ref)
                 )
-                lambda_aftershock += omori_amplitude / (dt + config.omori_c_time)
+
+                # Add this mainshock's aftershock contribution
+                lambda_aftershock += K / (dt_years + omori_c_years) ** config.omori_p
 
     # Total rate
     lambda_t = lambda_loading + lambda_aftershock
@@ -203,6 +235,7 @@ def earthquake_rate(
     components = {
         "loading": lambda_loading,
         "aftershock": lambda_aftershock,
+        "n_active_sequences": n_active_sequences,
         "moment_deficit": moment_deficit,
         "correction_factor": config.rate_correction_factor,
     }
