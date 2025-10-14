@@ -112,98 +112,6 @@ def plot_moment_history(results, config):
     return fig
 
 
-# def plot_moment_budget_analysis(results, config):
-#     """
-#     Analyze moment budget: input vs. output over time
-
-#     Shows cumulative loading vs. cumulative release
-#     """
-#     event_history = results["event_history"]
-
-#     if len(event_history) == 0:
-#         print("No events for budget analysis")
-#         return
-
-#     # Time array
-#     max_time = event_history[-1]["time"]
-#     times = np.linspace(0, max_time, 1000)
-
-#     # Cumulative tectonic loading
-#     total_loading_rate = (
-#         config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
-#     )
-#     cumulative_loading = times * total_loading_rate  # m³
-
-#     # Cumulative seismic release (as geometric moment)
-#     cumulative_release = np.zeros_like(times)
-#     for i, t in enumerate(times):
-#         # Sum all geometric moment released up to time t
-#         released = sum(
-#             [
-#                 np.sum(e["slip"] * config.element_area_m2)
-#                 for e in event_history
-#                 if e["time"] <= t
-#             ]
-#         )
-#         cumulative_release[i] = released
-
-#     # Moment deficit = loading - release
-#     moment_deficit = cumulative_loading - cumulative_release
-
-#     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
-
-#     # Top panel: Cumulative loading vs. release
-#     ax1.plot(
-#         times,
-#         cumulative_loading,
-#         "b-",
-#         linewidth=2,
-#         label="Cumulative Tectonic Loading",
-#     )
-#     ax1.plot(
-#         times, cumulative_release, "r-", linewidth=2, label="Cumulative Seismic Release"
-#     )
-
-#     ax1.set_ylabel("Cumulative Moment (m³)", fontsize=12)
-#     ax1.set_title("Moment Budget: Loading vs. Release", fontsize=14, fontweight="bold")
-#     ax1.legend(fontsize=11)
-#     ax1.grid(True, alpha=0.3)
-
-#     # Bottom panel: Moment deficit
-#     ax2.plot(times, moment_deficit, "purple", linewidth=2)
-#     ax2.axhline(0, color="k", linestyle="--", linewidth=0.5)
-
-#     ax2.set_xlabel("Time (years)", fontsize=12)
-#     ax2.set_ylabel("Moment Deficit (m³)", fontsize=12)
-#     ax2.set_title("Accumulated Moment Deficit", fontsize=13, fontweight="bold")
-#     ax2.grid(True, alpha=0.3)
-
-#     # Compute coupling coefficient
-#     if max_time > 0:
-#         total_loaded = cumulative_loading[-1]
-#         total_released = cumulative_release[-1]
-#         coupling_coef = total_released / total_loaded
-
-#         ax2.text(
-#             0.02,
-#             0.95,
-#             f"Seismic Coupling: {coupling_coef:.3f}",
-#             transform=ax2.transAxes,
-#             fontsize=11,
-#             verticalalignment="top",
-#             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
-#         )
-
-#     plt.tight_layout()
-
-#     # Save
-#     output_path = Path(config.output_dir) / "moment_budget.png"
-#     plt.savefig(output_path, dpi=150, bbox_inches="tight")
-#     print(f"Saved: {output_path}")
-
-#     return fig
-
-
 def plot_moment_budget(results, config):
     """
     Plot moment budget showing loading vs release
@@ -221,7 +129,6 @@ def plot_moment_budget(results, config):
     else:
         times = np.linspace(0, config.duration_years, 1000)
 
-    # FIX: Use authoritative cumulative values from simulator
     # These correctly account for all moment including initial spin-up
     if "cumulative_loading" in results and "cumulative_release" in results:
         # Get final values from simulator
@@ -244,9 +151,13 @@ def plot_moment_budget(results, config):
                 cumulative_release[i] = np.sum(event_moments_array[mask])
     else:
         # Fallback: reconstruct from loading rate (old method, less accurate)
-        print("WARNING: Using fallback loading calculation (cumulative values not in results)")
+        print(
+            "WARNING: Using fallback loading calculation (cumulative values not in results)"
+        )
         total_loading_rate = (
-            config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
+            config.background_slip_rate_m_yr
+            * config.n_elements
+            * config.element_area_m2
         )
         cumulative_loading = times * total_loading_rate
 
@@ -271,17 +182,17 @@ def plot_moment_budget(results, config):
         times,
         cumulative_loading_seismic,
         "b-",
-        linewidth=2,
-        label="Cumulative Tectonic Loading",
+        linewidth=1,
+        label="cumulative moment accumulation",
     )
     ax1.plot(
         times,
         cumulative_release_seismic,
         "r-",
-        linewidth=2,
-        label="Cumulative Seismic Release",
+        linewidth=1,
+        label="cumulative moment release",
     )
-    ax1.set_xlabel("Time (years)")
+    ax1.set_xlabel("$t$ (years)")
     ax1.set_ylabel("Cumulative Moment (N·m)")
     ax1.set_title("Moment Budget: Loading vs. Release")
     ax1.legend()
@@ -289,7 +200,7 @@ def plot_moment_budget(results, config):
 
     # Bottom panel: Moment deficit
     moment_deficit = cumulative_loading - cumulative_release
-    ax2.plot(times, moment_deficit, "purple", linewidth=2)
+    ax2.plot(times, moment_deficit, "r", linewidth=1.0)
     ax2.axhline(
         0,
         color="k",
@@ -327,7 +238,7 @@ def plot_moment_budget(results, config):
     print("\n" + "=" * 70)
     print("MOMENT BUDGET PLOT DIAGNOSTICS")
     print("=" * 70)
-    print(f"From simulator results dict (authoritative):")
+    print("From simulator results dict (authoritative):")
     sim_loading = results.get("cumulative_loading", 0.0)
     sim_release = results.get("cumulative_release", 0.0)
     print(f"  cumulative_loading: {sim_loading:.2e} m³")
@@ -336,7 +247,7 @@ def plot_moment_budget(results, config):
         sim_coupling = sim_release / sim_loading
         print(f"  coupling: {sim_coupling:.4f}")
 
-    print(f"\nPlot final values (should match):")
+    print("\nPlot final values (should match):")
     print(f"  cumulative_loading[-1]: {cumulative_loading[-1]:.2e} m³")
     print(f"  cumulative_release[-1]: {cumulative_release[-1]:.2e} m³")
     if cumulative_loading[-1] > 0:
@@ -347,10 +258,16 @@ def plot_moment_budget(results, config):
         loading_match = abs(cumulative_loading[-1] - sim_loading) / sim_loading < 0.01
         release_match = abs(cumulative_release[-1] - sim_release) / sim_release < 0.01
         coupling_match = abs(plot_coupling - sim_coupling) < 0.01
-        print(f"\nAgreement check:")
-        print(f"  Loading match: {loading_match} (Δ={(cumulative_loading[-1] - sim_loading)/sim_loading*100:.2f}%)")
-        print(f"  Release match: {release_match} (Δ={(cumulative_release[-1] - sim_release)/sim_release*100:.2f}%)")
-        print(f"  Coupling match: {coupling_match} (Δ={(plot_coupling - sim_coupling)*100:.2f}%)")
+        print("\nAgreement check:")
+        print(
+            f"  Loading match: {loading_match} (Δ={(cumulative_loading[-1] - sim_loading) / sim_loading * 100:.2f}%)"
+        )
+        print(
+            f"  Release match: {release_match} (Δ={(cumulative_release[-1] - sim_release) / sim_release * 100:.2f}%)"
+        )
+        print(
+            f"  Coupling match: {coupling_match} (Δ={(plot_coupling - sim_coupling) * 100:.2f}%)"
+        )
     print("=" * 70 + "\n")
 
 
@@ -598,7 +515,14 @@ def plot_cumulative_slip_map(results, config):
     cbar.set_label("log$_{10}$ slip (m)", fontsize=11)
 
     # Mark pulse center (where moment accumulates fastest)
-    ax.axvline(100.0, color='cyan', linestyle='--', linewidth=2, alpha=0.8, label='Pulse Center (x=100 km)')
+    ax.axvline(
+        100.0,
+        color="cyan",
+        linestyle="--",
+        linewidth=2,
+        alpha=0.8,
+        label="Pulse Center (x=100 km)",
+    )
 
     # Mark hypocenters to show where events nucleate
     hypo_x = [e["hypocenter_x_km"] for e in event_history]
@@ -613,7 +537,7 @@ def plot_cumulative_slip_map(results, config):
         label=f"Hypocenters (n={len(hypo_x)})",
     )
 
-    ax.legend(fontsize=9, loc='upper right')
+    ax.legend(fontsize=9, loc="upper right")
     plt.tight_layout()
 
     # Save
