@@ -294,53 +294,90 @@ def plot_event_rate_evolution(results, config):
 
     # Compute instantaneous rate (1/inter-event time)
     instantaneous_rates = 1.0 / np.array(inter_event_times)  # events/year
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
-
-    # Top panel: Inter-event times
-    ax1.scatter(
-        inter_event_mid_times,
-        inter_event_times,
-        c=inter_event_times,
-        cmap="coolwarm_r",
-        s=50,
-        alpha=0.7,
-        edgecolors="black",
-        linewidth=0.5,
+    instantaneous_rates += (
+        1e-10  # Add small numbers so that there's no problem with logs
     )
-    ax1.set_ylabel("Inter-Event Time (years)", fontsize=12)
-    ax1.set_title("Clustering and Quiescence Patterns", fontsize=14, fontweight="bold")
-    ax1.set_yscale("log")
-    ax1.grid(True, alpha=0.3)
 
-    cbar = plt.colorbar(ax1.collections[0], ax=ax1)
-    cbar.set_label("Inter-Event Time (years)", fontsize=11)
+    # from IPython import embed
 
-    # Bottom panel: Instantaneous rate
-    ax2.scatter(
+    # embed()
+
+    fig = plt.figure(figsize=(10, 6))
+
+    # Moment budget
+    plt.subplot(3, 1, 1)
+    plt.plot(
         inter_event_mid_times,
         instantaneous_rates,
-        c=instantaneous_rates,
-        cmap="coolwarm",
-        s=50,
-        alpha=0.7,
-        edgecolors="black",
-        linewidth=0.5,
+        "-",
+        linewidth=0.25,
+        color="k",
     )
-    ax2.set_xlabel("Time (years)", fontsize=12)
-    ax2.set_ylabel("Event Rate (events/year)", fontsize=12)
-    ax2.set_title("Instantaneous Event Rate", fontsize=13, fontweight="bold")
-    ax2.set_yscale("log")
-    ax2.grid(True, alpha=0.3)
 
-    cbar2 = plt.colorbar(ax2.collections[0], ax=ax2)
-    cbar2.set_label("Event Rate", fontsize=11)
+    # Instantaneous rate
+    plt.subplot(3, 1, 2)
+    plt.plot(
+        inter_event_mid_times,
+        instantaneous_rates,
+        "-",
+        linewidth=0.25,
+        color="k",
+    )
 
-    plt.tight_layout()
+    plt.fill_between(
+        inter_event_mid_times,
+        instantaneous_rates,
+        1.0,
+        color="tab:orange",
+        edgecolor=None,
+    )
+
+    plt.xlabel("$t$ (years)", fontsize=12)
+    plt.ylabel("$\\lambda(t)$ (events/year)", fontsize=12)
+    plt.xlim([0, config.duration_years])
+    plt.ylim([1, 1e3])
+    plt.yscale("log")
+
+    plt.subplot(3, 1, 3)
+    event_history = results["event_history"]
+
+    if len(event_history) == 0:
+        print("No events to plot")
+        return
+
+    times = [e["time"] for e in event_history]
+    magnitudes = [e["magnitude"] for e in event_history]
+
+    # Plot events
+    for i in range(len(times)):
+        if magnitudes[i] >= 6.0:
+            plt.plot(
+                [times[i], times[i]],
+                [5.0, magnitudes[i]],
+                "-k",
+                linewidth=0.25,
+                zorder=1,
+            )
+
+    plt.scatter(
+        times,
+        magnitudes,
+        c=magnitudes,
+        cmap="plasma",
+        s=1e-8 * np.array(magnitudes) ** 12.0,
+        alpha=1.0,
+        edgecolors="black",
+        linewidth=0.0,
+        zorder=10,
+    )
+
+    plt.xlabel("$t$ (years)", fontsize=12)
+    plt.ylabel("$M_W$", fontsize=12)
+    plt.xlim(0, config.duration_years)
 
     # Save
     output_path = Path(config.output_dir) / "event_rate_evolution.png"
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.savefig(output_path, dpi=500, bbox_inches="tight")
     print(f"Saved: {output_path}")
 
     return fig
@@ -484,13 +521,14 @@ def plot_cumulative_slip_map(results, config):
     # Reshape to 2D
     slip_grid = cumulative_slip.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
 
-    # DIAGNOSTIC: Analyze slip distribution before plotting
-    slip_profile_along_strike = np.sum(slip_grid, axis=1)  # Integrate over depth
-    max_slip_idx = np.argmax(slip_profile_along_strike)
-    max_slip_x = max_slip_idx * config.element_size_km
-    print(f"\nCumulative Slip Diagnostics:")
-    print(f"  Slip maximum at x = {max_slip_x:.1f} km (expected: 100.0 km)")
-    print(f"  Offset from pulse center: {abs(max_slip_x - 100.0):.1f} km")
+    # from IPython import embed
+
+    # embed()
+
+    # Create grids for contourf plotting
+    length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
+    depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
+    length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
 
     fig, ax = plt.subplots(figsize=(12, 2))
 
@@ -498,46 +536,26 @@ def plot_cumulative_slip_map(results, config):
     min_val = np.nanmin(to_plot)
     to_plot[~np.isfinite(to_plot)] = min_val
 
-    # FIX: Use origin="lower" for standard coordinates (no inversion needed)
-    im = ax.imshow(
+    cbar = ax.contourf(
+        length_grid,
+        depth_grid,
         to_plot,
-        origin="lower",
-        aspect="auto",
-        extent=[0, config.fault_length_km, 0, config.fault_depth_km],
-        cmap="hot_r",
+        cmap="cool",
+    )
+
+    ax.contour(
+        length_grid,
+        depth_grid,
+        to_plot,
+        colors="black",  # solid black lines
+        linewidths=0.5,  # adjust line thickness as needed
     )
 
     ax.set_xlabel("$x$ (km)", fontsize=12)
     ax.set_ylabel("$d$ (km)", fontsize=12)
     ax.set_title("Cumulative coseismic slip", fontsize=12)
-
-    cbar = plt.colorbar(im, ax=ax)
+    cbar = plt.colorbar(cbar, ax=ax)
     cbar.set_label("log$_{10}$ slip (m)", fontsize=11)
-
-    # Mark pulse center (where moment accumulates fastest)
-    ax.axvline(
-        100.0,
-        color="cyan",
-        linestyle="--",
-        linewidth=2,
-        alpha=0.8,
-        label="Pulse Center (x=100 km)",
-    )
-
-    # Mark hypocenters to show where events nucleate
-    hypo_x = [e["hypocenter_x_km"] for e in event_history]
-    hypo_z = [e["hypocenter_z_km"] for e in event_history]
-    ax.scatter(
-        hypo_x,
-        hypo_z,
-        c="lime",
-        s=3,
-        marker=".",
-        alpha=0.3,
-        label=f"Hypocenters (n={len(hypo_x)})",
-    )
-
-    ax.legend(fontsize=9, loc="upper right")
     plt.tight_layout()
 
     # Save
