@@ -275,7 +275,7 @@ def plot_moment_budget(results, config):
     print("=" * 70 + "\n")
 
 
-def plot_event_rate_evolution(results, config):
+def plot_evolution_overview(results, config):
     """
     Plot how event rate evolves through time
 
@@ -361,7 +361,6 @@ def plot_event_rate_evolution(results, config):
     cumulative_loading_seismic = cumulative_loading
     cumulative_release_seismic = cumulative_release
     moment_deficit = cumulative_loading_seismic - cumulative_release_seismic
-
     moment_deficit_y_lim = 1.1 * np.max(np.abs(moment_deficit))
 
     plt.subplot(3, 1, 1)
@@ -467,7 +466,7 @@ def plot_event_rate_evolution(results, config):
     plt.ylim(bottom=5.0)
 
     # Save
-    output_path = Path(config.output_dir) / "event_rate_evolution.png"
+    output_path = Path(config.output_dir) / "evolution_overview.png"
     plt.savefig(output_path, dpi=500, bbox_inches="tight")
     print(f"Saved: {output_path}")
 
@@ -732,7 +731,7 @@ def plot_all_diagnostics(results, config):
     # NEW PLOTS
     plot_moment_history(results, config)
     plot_moment_budget(results, config)
-    plot_event_rate_evolution(results, config)
+    plot_evolution_overview(results, config)
 
     # Animation (optional, can take time)
     # create_moment_animation(results, config)
