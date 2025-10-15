@@ -461,7 +461,7 @@ def plot_evolution_overview(results, config):
     )
 
     plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("$\mathrm{M}_\mathrm{W}$", fontsize=FONTSIZE)
+    plt.ylabel("$\\mathrm{M}_\\mathrm{W}$", fontsize=FONTSIZE)
     plt.xlim(0, config.duration_years)
     plt.ylim(bottom=5.0)
 
@@ -642,7 +642,8 @@ def plot_cumulative_slip_map(results, config):
 
     ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
     ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
-    ax.set_title("Cumulative coseismic slip", fontsize=FONTSIZE)
+    # ax.set_title("Cumulative coseismic slip", fontsize=FONTSIZE)
+    ax.invert_yaxis()
     cbar = plt.colorbar(cbar, ax=ax)
     cbar.set_label("log$_{10}$ slip (m)", fontsize=FONTSIZE)
     plt.tight_layout()
