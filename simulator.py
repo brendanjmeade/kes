@@ -81,6 +81,7 @@ def run_simulation(config):
     # Storage for results
     event_history = []
     moment_snapshots = []
+    release_snapshots = []  # Track cumulative spatial release
     snapshot_times = []
 
     # Time array
@@ -94,6 +95,9 @@ def run_simulation(config):
     initial_moment = np.sum(m_current)
     cumulative_loading = 0.0  # FIX: Start at zero, add initial moment to first update
     cumulative_release = 0.0  # No events yet
+
+    # Track spatial cumulative release for visualization
+    m_release_cumulative = np.zeros(config.n_elements)  # Cumulative slip released at each element
 
     # Adaptive correction update interval from config
     correction_update_interval = int(
@@ -112,6 +116,17 @@ def run_simulation(config):
         f"  Rate correction update interval: {config.correction_update_years:.0f} years"
     )
     print("=" * 70 + "\n")
+
+    # Calculate snapshot interval
+    snapshot_interval = int(config.snapshot_interval_days / config.time_step_days)
+    n_expected_snapshots = config.n_time_steps // snapshot_interval
+    snapshot_memory_mb = (
+        n_expected_snapshots * config.n_elements * 8 / (1024**2)
+    )  # 8 bytes per float64
+
+    print(f"  Snapshot interval: {config.snapshot_interval_days} days ({snapshot_interval} timesteps)")
+    print(f"  Expected snapshots: {n_expected_snapshots}")
+    print(f"  Estimated snapshot memory: {snapshot_memory_mb:.1f} MB")
 
     # Simulation loop
     for i, current_time in enumerate(tqdm(times, desc="Simulating")):
@@ -235,6 +250,9 @@ def run_simulation(config):
                 # Update cumulative release with actual geometric moment
                 cumulative_release += geom_moment_released
 
+                # Update spatial cumulative release (for visualization)
+                m_release_cumulative += slip
+
                 # Create event record
                 hypo_x = mesh["centroids"][hypocenter_idx, 0]
                 hypo_z = mesh["centroids"][hypocenter_idx, 2]
@@ -281,12 +299,14 @@ def run_simulation(config):
             # Update m_current with all releases from this timestep
             m_current = m_working
 
-        # Save snapshots (every year)
-        if i % int(365.25 / config.time_step_days) == 0:
+        # Save snapshots AFTER events (captures earthquake effects)
+        # Save at configured interval (default: every timestep)
+        if i % snapshot_interval == 0:
             moment_snapshots.append(m_current.copy())
+            release_snapshots.append(m_release_cumulative.copy())
             snapshot_times.append(current_time)
 
-        # FIX: Update adaptive rate correction periodically AFTER events are generated
+        # Update adaptive rate correction periodically AFTER events are generated
         # This ensures correction sees actual coupling from completed events
         if i % correction_update_interval == 0 and i > 0:
             update_rate_correction(
@@ -296,6 +316,28 @@ def run_simulation(config):
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
     print(f"  Total events: {len(event_history)}")
+
+    # Diagnostic: moment snapshot statistics
+    print(f"\n  Moment Snapshot Diagnostics:")
+    print(f"    Total snapshots saved: {len(moment_snapshots)}")
+    if len(moment_snapshots) > 0:
+        total_moments = [np.sum(m) for m in moment_snapshots]
+        print(
+            f"    Total moment range: {np.min(total_moments):.2e} to {np.max(total_moments):.2e} m³"
+        )
+        if len(total_moments) > 1:
+            moment_changes = np.diff(total_moments)
+            n_drops = np.sum(moment_changes < 0)
+            n_increases = np.sum(moment_changes > 0)
+            print(f"    Timesteps with moment drops: {n_drops}")
+            print(f"    Timesteps with moment increases: {n_increases}")
+            if n_drops > 0:
+                print(f"    Largest moment drop: {np.min(moment_changes):.2e} m³")
+                print(f"    Average drop size: {np.mean(moment_changes[moment_changes < 0]):.2e} m³")
+            if n_increases > 0:
+                print(
+                    f"    Average increase size: {np.mean(moment_changes[moment_changes > 0]):.2e} m³"
+                )
 
     # Diagnostic: correction update statistics
     expected_updates = int(config.duration_years / 100)
@@ -334,6 +376,7 @@ def run_simulation(config):
         "slip_rate": slip_rate,
         "event_history": event_history,
         "moment_snapshots": moment_snapshots,
+        "release_snapshots": release_snapshots,  # Cumulative spatial release
         "snapshot_times": snapshot_times,
         "final_moment": m_current,
         "cumulative_loading": cumulative_loading,

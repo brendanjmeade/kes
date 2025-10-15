@@ -77,6 +77,7 @@ class Config:
     # === OUTPUT ===
     output_dir = "results"
     output_pickle = "simulation_results.pkl"
+    snapshot_interval_days = 1.0  # Save moment snapshots every N days (1.0 = every timestep)
 
     def compute_derived_parameters(self):
         """Compute parameters that depend on others"""
