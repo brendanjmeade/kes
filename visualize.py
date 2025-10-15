@@ -534,54 +534,105 @@ def plot_magnitude_time_series(results, config):
     return fig
 
 
-def plot_moment_snapshots(results, config, times_to_plot=None):
+def plot_moment_snapshots(results, config, times_to_plot=None, plot_type="deficit"):
     """
     Plot moment distribution at multiple time slices
+
+    Uses spatial reconstruction following moment_budget.png pattern:
+    - spatial_loading = slip_rate × area × time (always increases)
+    - spatial_release = cumulative_release × area (step increases at earthquakes)
+    - spatial_deficit = loading - release (shows earthquake drops)
+
+    Parameters:
+    -----------
+    plot_type : str
+        "deficit" - plot moment deficit (reconstructed: loading - release)
+        "release" - plot cumulative moment release only
     """
-    moment_snapshots = results["moment_snapshots"]
     snapshot_times = results["snapshot_times"]
     mesh = results["mesh"]
+    slip_rate = results["slip_rate"]  # m/year per element
+    release_snapshots = results["release_snapshots"]  # cumulative slip release (m)
 
     if times_to_plot is None:
         # Default: plot 6 evenly spaced times
         indices = np.linspace(0, len(snapshot_times) - 1, 6, dtype=int)
         times_to_plot = [snapshot_times[i] for i in indices]
 
+    # Create grids for contourf plotting (matching cumulative_slip style)
+    length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
+    depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
+    length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
+
     n_plots = len(times_to_plot)
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    fig, axes = plt.subplots(6, 1, figsize=(15, 10))
     axes = axes.flatten()
 
     for i, t in enumerate(times_to_plot):
         # Find closest snapshot
         idx = np.argmin(np.abs(np.array(snapshot_times) - t))
-        m_snapshot = moment_snapshots[idx]
         actual_time = snapshot_times[idx]
 
-        # Reshape to 2D grid
-        m_grid = m_snapshot.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
+        # RECONSTRUCT spatial quantities (like moment_budget.png does for scalars)
+        # Loading: always increases linearly with time
+        spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m³
 
-        # Plot
+        # Release: step function at earthquakes
+        spatial_release = release_snapshots[idx] * config.element_area_m2  # m³
+
+        # Select data based on plot type
+        if plot_type == "release":
+            moment_data = spatial_release
+            title_text = "Cumulative Moment Release Through Time"
+        else:  # deficit
+            # Deficit shows drops when earthquakes occur!
+            moment_data = spatial_loading - spatial_release
+            title_text = "Moment Deficit Through Time"
+
+        # Reshape to 2D grid
+        moment_grid = moment_data.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
+
+        # Apply log transform (like cumulative_slip.png)
+        to_plot = np.sign(moment_grid.T) * np.abs(moment_grid.T) ** (0.2)
+        # min_val = np.nanmin(to_plot)
+        # to_plot[~np.isfinite(to_plot)] = min_val
+
+        # Plot with contourf + contour (matching cumulative_slip style)
         ax = axes[i]
-        im = ax.imshow(
-            m_grid.T,
-            origin="lower",
-            aspect="auto",
-            extent=[0, config.fault_length_km, 0, config.fault_depth_km],
-            cmap="viridis",
+        levels = np.linspace(-40, 40, 10)
+        cbar_plot = ax.contourf(
+            length_grid,
+            depth_grid,
+            to_plot,
+            cmap="PiYG",
+            levels=levels,
+            extend="both",
         )
 
-        ax.set_xlabel("Along-strike (km)")
-        ax.set_ylabel("Depth (km)")
-        ax.set_title(f"t = {actual_time:.1f} years")
+        ax.contour(
+            length_grid,
+            depth_grid,
+            to_plot,
+            colors="black",
+            linewidths=0.5,
+            linestyles="solid",
+            levels=levels,
+        )
 
-        plt.colorbar(im, ax=ax, label="Moment")
+        ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+        ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+        ax.set_title(f"$t$ = {actual_time:.1f} years", fontsize=FONTSIZE)
+        ax.invert_yaxis()
+
+        cbar = plt.colorbar(cbar_plot, ax=ax)
+        cbar.set_label("log$_{10}$ moment (m³)", fontsize=FONTSIZE)
 
     # Remove extra subplots if any
     for i in range(n_plots, len(axes)):
         fig.delaxes(axes[i])
 
     plt.suptitle(
-        "Cumulative Moment Distribution Through Time",
+        title_text,
         fontsize=FONTSIZE,
         y=0.995,
     )
@@ -589,7 +640,7 @@ def plot_moment_snapshots(results, config, times_to_plot=None):
 
     # Save
     output_path = Path(config.output_dir) / "moment_snapshots.png"
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.savefig(output_path, dpi=500, bbox_inches="tight")
     print(f"Saved: {output_path}")
 
     return fig
@@ -658,60 +709,105 @@ def plot_cumulative_slip_map(results, config):
 
 def create_moment_animation(results, config):
     """
-    Create animation of moment evolution
+    Create animation of moment evolution using contourf/contour style
 
     This will create an MP4 file showing moment evolution through time
+    Uses the same visual style as plot_cumulative_slip_map
     """
     moment_snapshots = results["moment_snapshots"]
     snapshot_times = results["snapshot_times"]
     mesh = results["mesh"]
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    # Create grids for contourf plotting (matching slip map style)
+    length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
+    depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
+    length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
 
-    # Initial plot
+    fig, ax = plt.subplots(figsize=(12, 3))
+
+    # Initial frame setup
     m_grid = moment_snapshots[0].reshape(mesh["n_along_strike"], mesh["n_down_dip"])
 
-    # Determine color scale from all snapshots
-    all_moments = np.concatenate([m.flatten() for m in moment_snapshots])
-    # all_moments = np.sign(all_moments) * np.abs(all_moments) ** 0.2
-    vmin, vmax = np.percentile(all_moments, [1, 99])
+    # Apply log transform (like slip map)
+    to_plot = np.log10(m_grid.T + 1e-10)  # Add small value to avoid log(0)
+    min_val = np.nanmin(to_plot)
+    to_plot[~np.isfinite(to_plot)] = min_val
 
-    m_grid = np.sign(m_grid) * np.abs(m_grid) ** 0.5
+    # Initial contourf and contour
+    contourf_plot = ax.contourf(
+        length_grid,
+        depth_grid,
+        to_plot,
+        cmap="cool",
+        levels=20,
+    )
 
-    im = ax.imshow(
-        m_grid.T,
-        origin="lower",
-        aspect="equal",
-        extent=[0, config.fault_length_km, 0, config.fault_depth_km],
-        cmap="RdYlBu_r",
-        vmin=-5e3,
-        vmax=5e3,
+    contour_plot = ax.contour(
+        length_grid,
+        depth_grid,
+        to_plot,
+        colors="black",
+        linewidths=0.5,
+        levels=20,
     )
 
     ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
     ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+    ax.invert_yaxis()  # Match slip map orientation
     title = ax.set_title("$t$ = 0.0 years", fontsize=FONTSIZE)
 
-    # cbar = plt.colorbar(im, ax=ax)
-    # cbar.set_label("Geometric Moment", fontsize=FONTSIZE)
+    # Add colorbar
+    cbar = plt.colorbar(contourf_plot, ax=ax)
+    cbar.set_label("log$_{10}$ moment (m³)", fontsize=FONTSIZE)
+
+    plt.tight_layout()
 
     def update(frame):
+        """Update function for animation - redraw contours each frame"""
+        # Clear previous contours
+        for c in ax.collections:
+            c.remove()
+
+        # Get current frame data
         m_grid = moment_snapshots[frame].reshape(
             mesh["n_along_strike"], mesh["n_down_dip"]
         )
-        m_grid = np.sign(m_grid) * np.abs(m_grid) ** 0.5
 
-        im.set_array(m_grid.T)
+        # Apply log transform
+        to_plot = np.log10(m_grid.T + 1e-10)
+        min_val = np.nanmin(to_plot)
+        to_plot[~np.isfinite(to_plot)] = min_val
+
+        # Redraw contourf and contour
+        ax.contourf(
+            length_grid,
+            depth_grid,
+            to_plot,
+            cmap="cool",
+            levels=20,
+        )
+
+        ax.contour(
+            length_grid,
+            depth_grid,
+            to_plot,
+            colors="black",
+            linewidths=0.5,
+            levels=20,
+        )
+
+        # Update title
         title.set_text(f"$t$ = {snapshot_times[frame]:.1f} years")
-        return [im, title]
+
+        return ax.collections + [title]
 
     anim = FuncAnimation(
-        fig, update, frames=len(moment_snapshots), interval=100, blit=True
+        fig, update, frames=len(moment_snapshots), interval=100, blit=False
     )
 
     # Save
     output_path = Path(config.output_dir) / "moment_evolution.mp4"
-    anim.save(output_path, writer="ffmpeg", fps=10, dpi=100)
+    anim.save(output_path, writer="ffmpeg", fps=10, dpi=150)
     print(f"Saved animation: {output_path}")
 
     plt.close()
