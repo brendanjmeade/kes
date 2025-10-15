@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from pathlib import Path
 
+FONTSIZE = 10
+
 
 def plot_moment_history(results, config):
     """
@@ -46,12 +48,14 @@ def plot_moment_history(results, config):
             event["time"], color=color, alpha=alpha, linewidth=linewidth, linestyle="--"
         )
 
-    ax1.set_ylabel("Total Geometric Moment (m³)", fontsize=12)
+    ax1.set_ylabel("Total Geometric Moment (m³)", fontsize=FONTSIZE)
     ax1.set_title(
-        "Moment Accumulation and Release Through Time", fontsize=14, fontweight="bold"
+        "Moment Accumulation and Release Through Time",
+        fontsize=FONTSIZE,
+        fontweight="bold",
     )
     ax1.grid(True, alpha=0.3)
-    ax1.legend(fontsize=11)
+    ax1.legend(fontsize=FONTSIZE)
 
     # Add legend for earthquake colors
     from matplotlib.lines import Line2D
@@ -68,7 +72,7 @@ def plot_moment_history(results, config):
         ),
         Line2D([0], [0], color="gray", linewidth=1, linestyle="--", label="M < 6.0"),
     ]
-    ax1.legend(handles=legend_elements, loc="upper left", fontsize=10)
+    ax1.legend(handles=legend_elements, loc="upper left", fontsize=FONTSIZE)
 
     # Bottom panel: Rate of change (moment rate)
     # Compute derivative to show loading rate vs. release events
@@ -96,11 +100,11 @@ def plot_moment_history(results, config):
         label=f"Expected Loading Rate",
     )
 
-    ax2.set_xlabel("Time (years)", fontsize=12)
-    ax2.set_ylabel("Moment Rate (m³/year)", fontsize=12)
-    ax2.set_title("Rate of Moment Change", fontsize=13, fontweight="bold")
+    ax2.set_xlabel("Time (years)", fontsize=FONTSIZE)
+    ax2.set_ylabel("Moment Rate (m³/year)", fontsize=FONTSIZE)
+    ax2.set_title("Rate of Moment Change", fontsize=FONTSIZE)
     ax2.grid(True, alpha=0.3)
-    ax2.legend(fontsize=11)
+    ax2.legend(fontsize=FONTSIZE)
 
     plt.tight_layout()
 
@@ -225,13 +229,13 @@ def plot_moment_budget(results, config):
             0.95,
             f"Seismic Coupling: {coupling_coef:.3f}",
             transform=ax2.transAxes,
-            fontsize=11,
+            fontsize=FONTSIZE,
             verticalalignment="top",
             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
         )
 
     plt.tight_layout()
-    plt.savefig(f"{config.output_dir}/moment_budget.png", dpi=150)
+    plt.savefig(f"{config.output_dir}/moment_budget.png", dpi=500)
     plt.close()
 
     # Debug prints - verify coupling agreement
@@ -298,21 +302,107 @@ def plot_event_rate_evolution(results, config):
         1e-10  # Add small numbers so that there's no problem with logs
     )
 
-    # from IPython import embed
-
-    # embed()
-
     fig = plt.figure(figsize=(10, 6))
 
     # Moment budget
+    event_history = results["event_history"]
+
+    # Extract event times and create dense time array
+    if len(event_history) > 0:
+        event_times = np.array([e["time"] for e in event_history])
+        # Combine regular grid with actual event times
+        regular_times = np.linspace(0, config.duration_years, 1000)
+        times = np.sort(np.unique(np.concatenate([regular_times, event_times])))
+    else:
+        times = np.linspace(0, config.duration_years, 1000)
+
+    # These correctly account for all moment including initial spin-up
+    if "cumulative_loading" in results and "cumulative_release" in results:
+        # Get final values from simulator
+        final_loading = results["cumulative_loading"]
+
+        # Create time array for plotting
+        final_time = config.duration_years
+
+        # Linear loading over time (constant rate)
+        cumulative_loading = times * (final_loading / final_time)
+
+        # Release: step function at each event time
+        cumulative_release = np.zeros_like(times)
+        if len(event_history) > 0:
+            event_times_array = np.array([e["time"] for e in event_history])
+            event_moments_array = np.array([e["geom_moment"] for e in event_history])
+
+            for i, t in enumerate(times):
+                mask = event_times_array <= t
+                cumulative_release[i] = np.sum(event_moments_array[mask])
+    else:
+        # Fallback: reconstruct from loading rate (old method, less accurate)
+        print(
+            "WARNING: Using fallback loading calculation (cumulative values not in results)"
+        )
+        total_loading_rate = (
+            config.background_slip_rate_m_yr
+            * config.n_elements
+            * config.element_area_m2
+        )
+        cumulative_loading = times * total_loading_rate
+
+        cumulative_release = np.zeros_like(times)
+        if len(event_history) > 0:
+            event_times_array = np.array([e["time"] for e in event_history])
+            event_moments_array = np.array([e["geom_moment"] for e in event_history])
+
+            for i, t in enumerate(times):
+                mask = event_times_array <= t
+                cumulative_release[i] = np.sum(event_moments_array[mask])
+
+    # Convert to seismic moment for plotting
+    cumulative_loading_seismic = cumulative_loading
+    cumulative_release_seismic = cumulative_release
+    moment_deficit = cumulative_loading_seismic - cumulative_release_seismic
+
+    moment_deficit_y_lim = 1.1 * np.max(np.abs(moment_deficit))
+
     plt.subplot(3, 1, 1)
+    plt.fill_between(
+        times,
+        moment_deficit,
+        0.0,
+        where=moment_deficit >= 0,
+        interpolate=True,
+        color="tab:orange",
+        edgecolor=None,
+    )
+    plt.fill_between(
+        times,
+        moment_deficit,
+        0.0,
+        where=moment_deficit <= 0,
+        interpolate=True,
+        color="tab:cyan",
+        edgecolor=None,
+    )
+
     plt.plot(
-        inter_event_mid_times,
-        instantaneous_rates,
+        times,
+        moment_deficit,
         "-",
         linewidth=0.25,
         color="k",
     )
+    plt.plot(
+        times,
+        np.zeros_like(times),
+        "-",
+        linewidth=0.25,
+        color="k",
+    )
+
+    plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
+    plt.ylabel("$m_\\mathrm{a} - m_\\mathrm{r}$ (m$^3$)", fontsize=FONTSIZE)
+    plt.xlim(0, config.duration_years)
+    plt.ylim(-moment_deficit_y_lim, moment_deficit_y_lim)
 
     # Instantaneous rate
     plt.subplot(3, 1, 2)
@@ -328,12 +418,12 @@ def plot_event_rate_evolution(results, config):
         inter_event_mid_times,
         instantaneous_rates,
         1.0,
-        color="tab:orange",
+        color="tab:pink",
         edgecolor=None,
     )
 
-    plt.xlabel("$t$ (years)", fontsize=12)
-    plt.ylabel("$\\lambda(t)$ (events/year)", fontsize=12)
+    plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
+    plt.ylabel("$\\lambda(t)$ (events/year)", fontsize=FONTSIZE)
     plt.xlim([0, config.duration_years])
     plt.ylim([1, 1e3])
     plt.yscale("log")
@@ -367,13 +457,14 @@ def plot_event_rate_evolution(results, config):
         s=1e-8 * np.array(magnitudes) ** 12.0,
         alpha=1.0,
         edgecolors="black",
-        linewidth=0.0,
+        linewidth=0.25,
         zorder=10,
     )
 
-    plt.xlabel("$t$ (years)", fontsize=12)
-    plt.ylabel("$M_W$", fontsize=12)
+    plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
+    plt.ylabel("$\mathrm{M}_\mathrm{W}$", fontsize=FONTSIZE)
     plt.xlim(0, config.duration_years)
+    plt.ylim(bottom=5.0)
 
     # Save
     output_path = Path(config.output_dir) / "event_rate_evolution.png"
@@ -416,11 +507,11 @@ def plot_magnitude_time_series(results, config):
         zorder=10,
     )
 
-    ax.set_xlabel("$t$ (years)", fontsize=12)
-    ax.set_ylabel("$M$", fontsize=12)
+    ax.set_xlabel("$t$ (years)", fontsize=FONTSIZE)
+    ax.set_ylabel("$M$", fontsize=FONTSIZE)
     ax.set_title(
         f"{len(event_history)} events",
-        fontsize=14,
+        fontsize=FONTSIZE,
         fontweight="bold",
     )
     ax.grid(True, alpha=0.3)
@@ -432,7 +523,7 @@ def plot_magnitude_time_series(results, config):
     )
     sm.set_array([])
     cbar = plt.colorbar(sm, ax=ax)
-    cbar.set_label("Magnitude", fontsize=11)
+    cbar.set_label("Magnitude", fontsize=FONTSIZE)
 
     plt.tight_layout()
 
@@ -492,8 +583,7 @@ def plot_moment_snapshots(results, config, times_to_plot=None):
 
     plt.suptitle(
         "Cumulative Moment Distribution Through Time",
-        fontsize=16,
-        fontweight="bold",
+        fontsize=FONTSIZE,
         y=0.995,
     )
     plt.tight_layout()
@@ -551,11 +641,11 @@ def plot_cumulative_slip_map(results, config):
         linewidths=0.5,  # adjust line thickness as needed
     )
 
-    ax.set_xlabel("$x$ (km)", fontsize=12)
-    ax.set_ylabel("$d$ (km)", fontsize=12)
-    ax.set_title("Cumulative coseismic slip", fontsize=12)
+    ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+    ax.set_title("Cumulative coseismic slip", fontsize=FONTSIZE)
     cbar = plt.colorbar(cbar, ax=ax)
-    cbar.set_label("log$_{10}$ slip (m)", fontsize=11)
+    cbar.set_label("log$_{10}$ slip (m)", fontsize=FONTSIZE)
     plt.tight_layout()
 
     # Save
@@ -598,12 +688,12 @@ def create_moment_animation(results, config):
         vmax=5e3,
     )
 
-    ax.set_xlabel("$x$ (km)", fontsize=12)
-    ax.set_ylabel("$d$ (km)", fontsize=12)
-    title = ax.set_title("$t$ = 0.0 years", fontsize=12)
+    ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+    title = ax.set_title("$t$ = 0.0 years", fontsize=FONTSIZE)
 
     # cbar = plt.colorbar(im, ax=ax)
-    # cbar.set_label("Geometric Moment", fontsize=11)
+    # cbar.set_label("Geometric Moment", fontsize=FONTSIZE)
 
     def update(frame):
         m_grid = moment_snapshots[frame].reshape(
