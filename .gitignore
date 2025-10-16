@@ -27,3 +27,4 @@ mesh_test*
 Untitled*.ipynb
 *.parquet
 local*.ipynb
+.claude/settings.local.json
