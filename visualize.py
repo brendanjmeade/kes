@@ -416,7 +416,7 @@ def plot_evolution_overview(results, config):
     plt.fill_between(
         inter_event_mid_times,
         instantaneous_rates,
-        1.0,
+        0.5,
         color="tab:pink",
         edgecolor=None,
     )
@@ -424,7 +424,7 @@ def plot_evolution_overview(results, config):
     plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
     plt.ylabel("$\\lambda(t)$ (events/year)", fontsize=FONTSIZE)
     plt.xlim([0, config.duration_years])
-    plt.ylim([1, 1e3])
+    plt.ylim([0.5, 1e3])
     plt.yscale("log")
 
     plt.subplot(3, 1, 3)
