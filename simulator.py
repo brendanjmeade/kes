@@ -99,22 +99,18 @@ def run_simulation(config):
     # Track spatial cumulative release for visualization
     m_release_cumulative = np.zeros(config.n_elements)  # Cumulative slip released at each element
 
-    # Adaptive correction update interval from config
-    correction_update_interval = int(
-        config.correction_update_years * 365.25 / config.time_step_days
-    )
-
     print("\n" + "=" * 70)
     print("RUNNING SIMULATION")
     print(f"  Duration: {config.duration_years} years")
     print(f"  Time steps: {config.n_time_steps}")
     print(f"  Time step size: {config.time_step_days} days = {dt_years:.6f} years")
-    print("  Event generation: Deterministic accumulator with adaptive rate")
+    print("  Event generation: Deterministic accumulator")
     print(f"  Initial moment (spin-up): {initial_moment:.2e} m³")
     print(f"  Cumulative loading accounting: starts at 0.0 m³")
-    print(
-        f"  Rate correction update interval: {config.correction_update_years:.0f} years"
-    )
+    if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
+        print(f"  Rate correction: CONTINUOUS (updated every timestep)")
+    else:
+        print(f"  Rate correction: DISABLED (fixed C)")
     print("=" * 70 + "\n")
 
     # Calculate snapshot interval
@@ -299,19 +295,18 @@ def run_simulation(config):
             # Update m_current with all releases from this timestep
             m_current = m_working
 
-        # Save snapshots AFTER events (captures earthquake effects)
+        # Update adaptive rate correction continuously (every timestep)
+        # This ensures correction sees actual coupling from completed events
+        update_rate_correction(
+            config, cumulative_loading, cumulative_release, current_time, dt_years
+        )
+
+        # Save snapshots AFTER events and correction (captures full state)
         # Save at configured interval (default: every timestep)
         if i % snapshot_interval == 0:
             moment_snapshots.append(m_current.copy())
             release_snapshots.append(m_release_cumulative.copy())
             snapshot_times.append(current_time)
-
-        # Update adaptive rate correction periodically AFTER events are generated
-        # This ensures correction sees actual coupling from completed events
-        if i % correction_update_interval == 0 and i > 0:
-            update_rate_correction(
-                config, cumulative_loading, cumulative_release, current_time
-            )
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
@@ -339,14 +334,6 @@ def run_simulation(config):
                     f"    Average increase size: {np.mean(moment_changes[moment_changes > 0]):.2e} m³"
                 )
 
-    # Diagnostic: correction update statistics
-    expected_updates = int(config.duration_years / 100)
-    actual_updates = len(config.coupling_history)
-    print(f"\n  Adaptive Correction Updates:")
-    print(f"    Expected: {expected_updates} (every 100 years)")
-    print(f"    Actual: {actual_updates}")
-    print(f"    Match: {actual_updates == expected_updates}")
-
     if len(event_history) > 0:
         total_M0_released = sum(e["M0"] for e in event_history)
         total_M0_loaded = (
@@ -360,7 +347,10 @@ def run_simulation(config):
             f"\n  Average rate: {len(event_history) / config.duration_years:.6f} events/year"
         )
         print(f"  Final seismic coupling: {coupling:.4f}")
-        print(f"  Final correction factor: {config.rate_correction_factor:.4f}")
+        if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
+            print(f"  Final correction factor: {config.rate_correction_factor:.4f}")
+        else:
+            print(f"  Correction factor: {config.rate_correction_factor:.4f} (fixed, no adaptation)")
         print(f"  Cumulative loading: {cumulative_loading:.2e} m³")
         print(f"  Cumulative release: {cumulative_release:.2e} m³")
         print(f"  Final deficit: {cumulative_loading - cumulative_release:.2e} m³")
@@ -381,7 +371,7 @@ def run_simulation(config):
         "final_moment": m_current,
         "cumulative_loading": cumulative_loading,
         "cumulative_release": cumulative_release,
-        "coupling_history": config.coupling_history,
+        "coupling_history": config.coupling_history,  # Stored every 100 years
     }
 
     return results

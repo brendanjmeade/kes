@@ -39,10 +39,10 @@ class Config:
     M_max = 8.0  # Maximum magnitude
 
     # === ADAPTIVE RATE CORRECTION ===
-    adaptive_correction_gain = 0.5  # Proportional control gain for coupling correction
+    adaptive_correction_enabled = True  # Enable adaptive correction (False = fixed C, natural coupling)
+    adaptive_correction_gain = 5.0  # Proportional control gain for coupling correction (continuous updates)
     correction_factor_min = 0.1  # Minimum allowed correction factor
     correction_factor_max = 10.0  # Maximum allowed correction factor
-    correction_update_years = 100.0  # Update correction factor every N years
 
     # === OMORI AFTERSHOCK PARAMETERS ===
     # Standard Omori-Utsu law: λ_aftershock(t) = K / (t + c)^p
@@ -68,7 +68,7 @@ class Config:
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 1000.0
+    duration_years = 1000.0  # Full simulation duration
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility
