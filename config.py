@@ -39,8 +39,12 @@ class Config:
     M_max = 8.0  # Maximum magnitude
 
     # === ADAPTIVE RATE CORRECTION ===
-    adaptive_correction_enabled = True  # Enable adaptive correction (False = fixed C, natural coupling)
-    adaptive_correction_gain = 5.0  # Proportional control gain for coupling correction (continuous updates)
+    adaptive_correction_enabled = (
+        False  # Enable adaptive correction (False = fixed C, natural coupling)
+    )
+    adaptive_correction_gain = (
+        5.0  # Proportional control gain for coupling correction (continuous updates)
+    )
     correction_factor_min = 0.1  # Minimum allowed correction factor
     correction_factor_max = 10.0  # Maximum allowed correction factor
 
@@ -77,7 +81,9 @@ class Config:
     # === OUTPUT ===
     output_dir = "results"
     output_pickle = "simulation_results.pkl"
-    snapshot_interval_days = 1.0  # Save moment snapshots every N days (1.0 = every timestep)
+    snapshot_interval_days = (
+        1.0  # Save moment snapshots every N days (1.0 = every timestep)
+    )
 
     def compute_derived_parameters(self):
         """Compute parameters that depend on others"""
