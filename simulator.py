@@ -90,6 +90,7 @@ def run_simulation(config):
 
     # Deterministic accumulator for fractional events
     event_debt = 0.0
+    event_debt_history = []  # Track debt over time for visualization
 
     # Track cumulative moment for rate calculation
     initial_moment = np.sum(m_current)
@@ -301,6 +302,9 @@ def run_simulation(config):
             config, cumulative_loading, cumulative_release, current_time, dt_years
         )
 
+        # Store event debt for visualization
+        event_debt_history.append(event_debt)
+
         # Save snapshots AFTER events and correction (captures full state)
         # Save at configured interval (default: every timestep)
         if i % snapshot_interval == 0:
@@ -372,6 +376,8 @@ def run_simulation(config):
         "cumulative_loading": cumulative_loading,
         "cumulative_release": cumulative_release,
         "coupling_history": config.coupling_history,  # Stored every 100 years
+        "event_debt_history": np.array(event_debt_history),  # Deterministic accumulator debt
+        "times": times,  # Time array for plotting
     }
 
     return results
