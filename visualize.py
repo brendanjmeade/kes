@@ -593,13 +593,13 @@ def plot_moment_snapshots(results, config, times_to_plot=None, plot_type="defici
         moment_grid = moment_data.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
 
         # Apply log transform (like cumulative_slip.png)
-        to_plot = np.sign(moment_grid.T) * np.abs(moment_grid.T) ** (0.2)
+        to_plot = np.sign(moment_grid.T) * np.abs(moment_grid.T) ** (0.5)
         # min_val = np.nanmin(to_plot)
         # to_plot[~np.isfinite(to_plot)] = min_val
 
         # Plot with contourf + contour (matching cumulative_slip style)
         ax = axes[i]
-        levels = np.linspace(-40, 40, 10)
+        levels = np.linspace(-5000, 5000, 11)
         cbar_plot = ax.contourf(
             length_grid,
             depth_grid,
@@ -625,17 +625,8 @@ def plot_moment_snapshots(results, config, times_to_plot=None, plot_type="defici
         ax.invert_yaxis()
 
         cbar = plt.colorbar(cbar_plot, ax=ax)
-        cbar.set_label("log$_{10}$ moment (m³)", fontsize=FONTSIZE)
+        # cbar.set_label("log$_{10}$ moment (m³)", fontsize=FONTSIZE)
 
-    # Remove extra subplots if any
-    for i in range(n_plots, len(axes)):
-        fig.delaxes(axes[i])
-
-    plt.suptitle(
-        title_text,
-        fontsize=FONTSIZE,
-        y=0.995,
-    )
     plt.tight_layout()
 
     # Save
