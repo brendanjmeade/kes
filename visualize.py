@@ -302,7 +302,7 @@ def plot_evolution_overview(results, config):
         1e-10  # Add small numbers so that there's no problem with logs
     )
 
-    fig = plt.figure(figsize=(10, 6))
+    fig = plt.figure(figsize=(10, 8))  # Increased height for 4 panels
 
     # Moment budget
     event_history = results["event_history"]
@@ -363,7 +363,7 @@ def plot_evolution_overview(results, config):
     moment_deficit = cumulative_loading_seismic - cumulative_release_seismic
     moment_deficit_y_lim = 1.1 * np.max(np.abs(moment_deficit))
 
-    plt.subplot(3, 1, 1)
+    plt.subplot(4, 1, 1)
     plt.fill_between(
         times,
         moment_deficit,
@@ -404,7 +404,7 @@ def plot_evolution_overview(results, config):
     plt.ylim(-moment_deficit_y_lim, moment_deficit_y_lim)
 
     # Instantaneous rate
-    plt.subplot(3, 1, 2)
+    plt.subplot(4, 1, 2)
     plt.plot(
         inter_event_mid_times,
         instantaneous_rates,
@@ -427,7 +427,35 @@ def plot_evolution_overview(results, config):
     plt.ylim([0.5, 1e3])
     plt.yscale("log")
 
-    plt.subplot(3, 1, 3)
+    # Event debt (new panel)
+    plt.subplot(4, 1, 3)
+
+    # Get event debt history and times
+    if "event_debt_history" in results and "times" in results:
+        debt_times = results["times"]
+        debt_values = results["event_debt_history"]
+
+        # Plot debt evolution
+        plt.plot(debt_times, debt_values, "-", linewidth=0.5, color="tab:purple", alpha=0.7)
+
+        # Plot threshold line at debt = 1.0
+        plt.axhline(y=1.0, color="tab:red", linestyle="--", linewidth=1.0, label="Event threshold")
+
+        # Mark where events occurred (debt drops)
+        event_times_mark = [e["time"] for e in event_history]
+        plt.scatter(event_times_mark, np.ones(len(event_times_mark)),
+                   marker='|', s=20, color='tab:red', alpha=0.5, zorder=3)
+
+        plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
+        plt.ylabel("Event debt\n(accumulated probability)", fontsize=FONTSIZE)
+        plt.xlim([0, config.duration_years])
+        plt.ylim([0, max(1.5, np.max(debt_values) * 1.1)])
+        plt.legend(loc="upper right", fontsize=8)
+    else:
+        print("Event debt history not available")
+
+    # Magnitude time series
+    plt.subplot(4, 1, 4)
     event_history = results["event_history"]
 
     if len(event_history) == 0:
