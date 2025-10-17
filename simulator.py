@@ -150,6 +150,9 @@ def run_simulation(config):
         # Accumulate fractional events
         event_debt += lambda_t * dt_years
 
+        # Store debt BEFORE event subtraction (to capture peaks > 1.0)
+        event_debt_history.append(event_debt)
+
         # Generate integer number of events when debt ≥ 1
         n_events = int(event_debt)
         event_debt -= n_events
@@ -301,9 +304,6 @@ def run_simulation(config):
         update_rate_correction(
             config, cumulative_loading, cumulative_release, current_time, dt_years
         )
-
-        # Store event debt for visualization
-        event_debt_history.append(event_debt)
 
         # Save snapshots AFTER events and correction (captures full state)
         # Save at configured interval (default: every timestep)
