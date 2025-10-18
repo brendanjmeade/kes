@@ -10,110 +10,115 @@ from pathlib import Path
 FONTSIZE = 10
 
 
-def plot_moment_history(results, config):
-    """
-    Plot total accumulated moment through time
+# def plot_moment_history(results, config):
+#     """
+#     Plot total accumulated moment through time
 
-    Shows loading, earthquakes, and recovery
-    """
-    moment_snapshots = results["moment_snapshots"]
-    snapshot_times = results["snapshot_times"]
-    event_history = results["event_history"]
+#     Shows loading, earthquakes, and recovery
+#     """
+#     moment_snapshots = results["moment_snapshots"]
+#     snapshot_times = results["snapshot_times"]
+#     event_history = results["event_history"]
 
-    # Calculate total moment at each snapshot
-    total_moments = [np.sum(m) for m in moment_snapshots]
+#     # Calculate total moment at each snapshot (vectorized for HDF5 performance)
+#     # Load all snapshots at once and sum along element axis (axis=1)
+#     total_moments = np.sum(moment_snapshots[:], axis=1)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+#     # Convert snapshot_times to NumPy array if it's an HDF5 dataset
+#     if hasattr(snapshot_times, "shape"):  # HDF5 dataset
+#         snapshot_times = snapshot_times[:]
 
-    # Top panel: Total accumulated moment
-    ax1.plot(snapshot_times, total_moments, "b-", linewidth=2, label="Total Moment")
+#     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
 
-    # Mark earthquakes as vertical lines
-    for event in event_history:
-        # Color by magnitude
-        if event["magnitude"] >= 7.0:
-            color = "red"
-            alpha = 0.7
-            linewidth = 2
-        elif event["magnitude"] >= 6.0:
-            color = "orange"
-            alpha = 0.5
-            linewidth = 1.5
-        else:
-            color = "gray"
-            alpha = 0.3
-            linewidth = 1
+#     # Top panel: Total accumulated moment
+#     ax1.plot(snapshot_times, total_moments, "b-", linewidth=2, label="Total Moment")
 
-        ax1.axvline(
-            event["time"], color=color, alpha=alpha, linewidth=linewidth, linestyle="--"
-        )
+#     # Mark earthquakes as vertical lines
+#     for event in event_history:
+#         # Color by magnitude
+#         if event["magnitude"] >= 7.0:
+#             color = "red"
+#             alpha = 0.7
+#             linewidth = 2
+#         elif event["magnitude"] >= 6.0:
+#             color = "orange"
+#             alpha = 0.5
+#             linewidth = 1.5
+#         else:
+#             color = "gray"
+#             alpha = 0.3
+#             linewidth = 1
 
-    ax1.set_ylabel("Total Geometric Moment (m³)", fontsize=FONTSIZE)
-    ax1.set_title(
-        "Moment Accumulation and Release Through Time",
-        fontsize=FONTSIZE,
-        fontweight="bold",
-    )
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(fontsize=FONTSIZE)
+#         ax1.axvline(
+#             event["time"], color=color, alpha=alpha, linewidth=linewidth, linestyle="--"
+#         )
 
-    # Add legend for earthquake colors
-    from matplotlib.lines import Line2D
+#     ax1.set_ylabel("Total Geometric Moment (m³)", fontsize=FONTSIZE)
+#     ax1.set_title(
+#         "Moment Accumulation and Release Through Time",
+#         fontsize=FONTSIZE,
+#         fontweight="bold",
+#     )
+#     ax1.grid(True, alpha=0.3)
+#     ax1.legend(fontsize=FONTSIZE)
 
-    legend_elements = [
-        Line2D([0], [0], color="red", linewidth=2, linestyle="--", label="M ≥ 7.0"),
-        Line2D(
-            [0],
-            [0],
-            color="orange",
-            linewidth=1.5,
-            linestyle="--",
-            label="6.0 ≤ M < 7.0",
-        ),
-        Line2D([0], [0], color="gray", linewidth=1, linestyle="--", label="M < 6.0"),
-    ]
-    ax1.legend(handles=legend_elements, loc="upper left", fontsize=FONTSIZE)
+#     # Add legend for earthquake colors
+#     from matplotlib.lines import Line2D
 
-    # Bottom panel: Rate of change (moment rate)
-    # Compute derivative to show loading rate vs. release events
-    dt = np.diff(snapshot_times)
-    dm = np.diff(total_moments)
-    moment_rate = dm / dt  # m³/year
+#     legend_elements = [
+#         Line2D([0], [0], color="red", linewidth=2, linestyle="--", label="M ≥ 7.0"),
+#         Line2D(
+#             [0],
+#             [0],
+#             color="orange",
+#             linewidth=1.5,
+#             linestyle="--",
+#             label="6.0 ≤ M < 7.0",
+#         ),
+#         Line2D([0], [0], color="gray", linewidth=1, linestyle="--", label="M < 6.0"),
+#     ]
+#     ax1.legend(handles=legend_elements, loc="upper left", fontsize=FONTSIZE)
 
-    ax2.plot(
-        snapshot_times[:-1], moment_rate, "g-", linewidth=1.5, label="Net Moment Rate"
-    )
+#     # Bottom panel: Rate of change (moment rate)
+#     # Compute derivative to show loading rate vs. release events
+#     dt = np.diff(snapshot_times)
+#     dm = np.diff(total_moments)
+#     moment_rate = dm / dt  # m³/year
 
-    # Add zero line
-    ax2.axhline(0, color="k", linestyle="-", linewidth=0.5, alpha=0.5)
+#     ax2.plot(
+#         snapshot_times[:-1], moment_rate, "g-", linewidth=1.5, label="Net Moment Rate"
+#     )
 
-    # Expected loading rate (from config)
-    expected_rate = (
-        config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
-    )
-    ax2.axhline(
-        expected_rate,
-        color="b",
-        linestyle="--",
-        linewidth=1.5,
-        alpha=0.7,
-        label=f"Expected Loading Rate",
-    )
+#     # Add zero line
+#     ax2.axhline(0, color="k", linestyle="-", linewidth=0.5, alpha=0.5)
 
-    ax2.set_xlabel("Time (years)", fontsize=FONTSIZE)
-    ax2.set_ylabel("Moment Rate (m³/year)", fontsize=FONTSIZE)
-    ax2.set_title("Rate of Moment Change", fontsize=FONTSIZE)
-    ax2.grid(True, alpha=0.3)
-    ax2.legend(fontsize=FONTSIZE)
+#     # Expected loading rate (from config)
+#     expected_rate = (
+#         config.background_slip_rate_m_yr * config.n_elements * config.element_area_m2
+#     )
+#     ax2.axhline(
+#         expected_rate,
+#         color="b",
+#         linestyle="--",
+#         linewidth=1.5,
+#         alpha=0.7,
+#         label=f"Expected Loading Rate",
+#     )
 
-    plt.tight_layout()
+#     ax2.set_xlabel("Time (years)", fontsize=FONTSIZE)
+#     ax2.set_ylabel("Moment Rate (m³/year)", fontsize=FONTSIZE)
+#     ax2.set_title("Rate of Moment Change", fontsize=FONTSIZE)
+#     ax2.grid(True, alpha=0.3)
+#     ax2.legend(fontsize=FONTSIZE)
 
-    # Save
-    output_path = Path(config.output_dir) / "moment_history.png"
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    print(f"Saved: {output_path}")
+#     plt.tight_layout()
 
-    return fig
+#     # Save
+#     output_path = Path(config.output_dir) / "moment_history.png"
+#     plt.savefig(output_path, dpi=150, bbox_inches="tight")
+#     print(f"Saved: {output_path}")
+
+#     return fig
 
 
 def plot_moment_budget(results, config):
@@ -433,6 +438,12 @@ def plot_evolution_overview(results, config):
     # Get event debt history and times
     debt_times = results["times"]
     debt_values = results["event_debt_history"]
+
+    # Convert to NumPy arrays if HDF5 datasets
+    if hasattr(debt_times, "shape"):
+        debt_times = debt_times[:]
+    if hasattr(debt_values, "shape"):
+        debt_values = debt_values[:]
 
     # Plot debt evolution
     plt.plot(debt_times, debt_values, "-", linewidth=0.25, color="tab:gray", alpha=1.0)
@@ -829,7 +840,7 @@ def plot_all_diagnostics(results, config):
     plot_cumulative_slip_map(results, config)
 
     # NEW PLOTS
-    plot_moment_history(results, config)
+    # plot_moment_history(results, config)
     plot_moment_budget(results, config)
     plot_evolution_overview(results, config)
 

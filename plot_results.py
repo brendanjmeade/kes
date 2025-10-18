@@ -14,20 +14,24 @@ import sys
 import pickle
 from pathlib import Path
 from visualize import plot_all_diagnostics
+from hdf5_io import load_lazy_results
 
 
 def load_results(results_path):
     """
-    Load simulation results from pickle file
+    Load simulation results from HDF5 or pickle file
+
+    Automatically detects format based on file extension.
+    HDF5 files use lazy loading for memory efficiency.
 
     Parameters:
     -----------
     results_path : str or Path
-        Path to the simulation_results.pkl file
+        Path to the results file (.h5 or .pkl)
 
     Returns:
     --------
-    results : dict
+    results : dict or HDF5Results
         Dictionary containing all simulation data and config
     """
     results_path = Path(results_path)
@@ -37,15 +41,30 @@ def load_results(results_path):
 
     print(f"Loading results from: {results_path}")
 
-    with open(results_path, "rb") as f:
-        results = pickle.load(f)
+    # Detect format
+    if results_path.suffix in ['.h5', '.hdf5']:
+        # Load HDF5 with lazy loading
+        results = load_lazy_results(results_path)
+        print("Results loaded successfully from HDF5!")
+        print(f"  Events: {len(results['event_history'])}")
+        print(f"  Duration: {results['config'].duration_years} years")
+        print(
+            f"  Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}"
+        )
+        print(f"  Storage: HDF5 (lazy loading)")
 
-    print("Results loaded successfully!")
-    print(f"  Events: {len(results['event_history'])}")
-    print(f"  Duration: {results['config'].duration_years} years")
-    print(
-        f"  Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}"
-    )
+    else:
+        # Load pickle (legacy)
+        with open(results_path, "rb") as f:
+            results = pickle.load(f)
+
+        print("Results loaded successfully from pickle!")
+        print(f"  Events: {len(results['event_history'])}")
+        print(f"  Duration: {results['config'].duration_years} years")
+        print(
+            f"  Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}"
+        )
+        print(f"  Storage: Pickle (full in-memory)")
 
     return results
 
@@ -58,8 +77,16 @@ def main():
     if len(sys.argv) > 1:
         results_path = sys.argv[1]
     else:
-        # Default path
-        results_path = "results/simulation_results.pkl"
+        # Default path (try HDF5 first, fall back to pickle)
+        hdf5_path = Path("results/simulation_results.h5")
+        pkl_path = Path("results/simulation_results.pkl")
+
+        if hdf5_path.exists():
+            results_path = hdf5_path
+        elif pkl_path.exists():
+            results_path = pkl_path
+        else:
+            results_path = "results/simulation_results.h5"  # Default to HDF5
 
     print("=" * 70)
     print("EARTHQUAKE SIMULATOR - VISUALIZATION")

@@ -80,7 +80,10 @@ class Config:
 
     # === OUTPUT ===
     output_dir = "results"
-    output_pickle = "simulation_results.pkl"
+    output_pickle = "simulation_results.pkl"  # Legacy pickle output (deprecated)
+    output_hdf5 = "simulation_results.h5"  # HDF5 output (recommended)
+    use_hdf5 = True  # Use HDF5 for output (set False for legacy pickle)
+    hdf5_compression = 0  # gzip compression level (0=none for speed, 4=balanced, 9=max compression)
     snapshot_interval_days = (
         1.0  # Save moment snapshots every N days (1.0 = every timestep)
     )
@@ -111,3 +114,41 @@ class Config:
             f"Grid: {self.n_along_strike} x {self.n_down_dip} = {self.n_elements} elements"
         )
         print(f"Total moment rate: {self.total_moment_rate:.2e} N·m/year")
+
+    def to_dict(self):
+        """
+        Serialize configuration to dictionary for HDF5 storage
+
+        Returns:
+        --------
+        config_dict : dict
+            Dictionary of all config parameters (excludes methods and private attrs)
+        """
+        config_dict = {}
+        for key, value in self.__dict__.items():
+            # Skip private attributes and methods
+            if key.startswith('_') or callable(value):
+                continue
+            # Store all simple types
+            config_dict[key] = value
+        return config_dict
+
+    @classmethod
+    def from_dict(cls, config_dict):
+        """
+        Reconstruct Config object from dictionary
+
+        Parameters:
+        -----------
+        config_dict : dict
+            Dictionary of config parameters
+
+        Returns:
+        --------
+        config : Config
+            Reconstructed configuration object
+        """
+        config = cls()
+        for key, value in config_dict.items():
+            setattr(config, key, value)
+        return config
