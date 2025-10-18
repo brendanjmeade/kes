@@ -80,9 +80,7 @@ class Config:
 
     # === OUTPUT ===
     output_dir = "results"
-    output_pickle = "simulation_results.pkl"  # Legacy pickle output (deprecated)
-    output_hdf5 = "simulation_results.h5"  # HDF5 output (recommended)
-    use_hdf5 = True  # Use HDF5 for output (set False for legacy pickle)
+    output_hdf5 = "simulation_results.h5"
     hdf5_compression = 0  # gzip compression level (0=none for speed, 4=balanced, 9=max compression)
     snapshot_interval_days = (
         1.0  # Save moment snapshots every N days (1.0 = every timestep)

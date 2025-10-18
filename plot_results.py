@@ -1,17 +1,16 @@
 """
 Standalone visualization script for earthquake simulator results
 
-Loads results from simulation_results.pkl and generates all diagnostic plots.
+Loads results from HDF5 file and generates all diagnostic plots.
 This allows iterating on visualization without rerunning expensive simulations.
 
 Usage:
-    python plot_results.py [path_to_results.pkl]
+    python plot_results.py [path_to_results.h5]
 
-If no path is provided, defaults to results/simulation_results.pkl
+If no path is provided, defaults to results/simulation_results.h5
 """
 
 import sys
-import pickle
 from pathlib import Path
 from visualize import plot_all_diagnostics
 from hdf5_io import load_lazy_results
@@ -19,20 +18,19 @@ from hdf5_io import load_lazy_results
 
 def load_results(results_path):
     """
-    Load simulation results from HDF5 or pickle file
+    Load simulation results from HDF5 file
 
-    Automatically detects format based on file extension.
-    HDF5 files use lazy loading for memory efficiency.
+    Uses lazy loading for memory efficiency.
 
     Parameters:
     -----------
     results_path : str or Path
-        Path to the results file (.h5 or .pkl)
+        Path to the results file (.h5)
 
     Returns:
     --------
-    results : dict or HDF5Results
-        Dictionary containing all simulation data and config
+    results : HDF5Results
+        Lazy-loading wrapper for simulation data
     """
     results_path = Path(results_path)
 
@@ -41,30 +39,15 @@ def load_results(results_path):
 
     print(f"Loading results from: {results_path}")
 
-    # Detect format
-    if results_path.suffix in ['.h5', '.hdf5']:
-        # Load HDF5 with lazy loading
-        results = load_lazy_results(results_path)
-        print("Results loaded successfully from HDF5!")
-        print(f"  Events: {len(results['event_history'])}")
-        print(f"  Duration: {results['config'].duration_years} years")
-        print(
-            f"  Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}"
-        )
-        print(f"  Storage: HDF5 (lazy loading)")
-
-    else:
-        # Load pickle (legacy)
-        with open(results_path, "rb") as f:
-            results = pickle.load(f)
-
-        print("Results loaded successfully from pickle!")
-        print(f"  Events: {len(results['event_history'])}")
-        print(f"  Duration: {results['config'].duration_years} years")
-        print(
-            f"  Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}"
-        )
-        print(f"  Storage: Pickle (full in-memory)")
+    # Load HDF5 with lazy loading
+    results = load_lazy_results(results_path)
+    print("Results loaded successfully from HDF5!")
+    print(f"  Events: {len(results['event_history'])}")
+    print(f"  Duration: {results['config'].duration_years} years")
+    print(
+        f"  Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}"
+    )
+    print(f"  Storage: HDF5 (lazy loading)")
 
     return results
 
@@ -77,16 +60,8 @@ def main():
     if len(sys.argv) > 1:
         results_path = sys.argv[1]
     else:
-        # Default path (try HDF5 first, fall back to pickle)
-        hdf5_path = Path("results/simulation_results.h5")
-        pkl_path = Path("results/simulation_results.pkl")
-
-        if hdf5_path.exists():
-            results_path = hdf5_path
-        elif pkl_path.exists():
-            results_path = pkl_path
-        else:
-            results_path = "results/simulation_results.h5"  # Default to HDF5
+        # Default path
+        results_path = Path("results/simulation_results.h5")
 
     print("=" * 70)
     print("EARTHQUAKE SIMULATOR - VISUALIZATION")

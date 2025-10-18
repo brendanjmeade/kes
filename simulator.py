@@ -4,7 +4,6 @@ Main simulation loop with moment-based rate generation
 
 import numpy as np
 from tqdm import tqdm
-import pickle
 from pathlib import Path
 
 from geometry import create_fault_mesh
@@ -79,23 +78,17 @@ def run_simulation(config):
     # Initialize moment distribution
     m_current, slip_rate = initialize_moment(config, mesh)
 
-    # Initialize HDF5 storage if enabled
-    h5file = None
-    hdf5_writer = None
-    if config.use_hdf5:
-        output_path = Path(config.output_dir) / config.output_hdf5
-        output_path.parent.mkdir(exist_ok=True)
-        h5file = create_hdf5_file(output_path, config, mesh)
-        hdf5_writer = BufferedHDF5Writer(h5file)  # Uses default buffer_size=5000
-        print(f"\nHDF5 output file created: {output_path}")
-        print(f"  Buffered writes: {hdf5_writer.buffer_size} snapshots (~{hdf5_writer.buffer_size * config.n_elements * 8 / (1024**2):.0f} MB RAM)")
-        print(f"  Compression: {'disabled (fast)' if config.hdf5_compression == 0 else f'gzip level {config.hdf5_compression}'}")
+    # Initialize HDF5 storage
+    output_path = Path(config.output_dir) / config.output_hdf5
+    output_path.parent.mkdir(exist_ok=True)
+    h5file = create_hdf5_file(output_path, config, mesh)
+    hdf5_writer = BufferedHDF5Writer(h5file)  # Uses default buffer_size=5000
+    print(f"\nHDF5 output file created: {output_path}")
+    print(f"  Buffered writes: {hdf5_writer.buffer_size} snapshots (~{hdf5_writer.buffer_size * config.n_elements * 8 / (1024**2):.0f} MB RAM)")
+    print(f"  Compression: {'disabled (fast)' if config.hdf5_compression == 0 else f'gzip level {config.hdf5_compression}'}")
 
-    # Storage for results (legacy or in-memory diagnostics)
+    # Storage for in-memory diagnostics
     event_history = []
-    moment_snapshots = [] if not config.use_hdf5 else None  # Only store in memory if not using HDF5
-    release_snapshots = [] if not config.use_hdf5 else None
-    snapshot_times = [] if not config.use_hdf5 else None
 
     # Time array
     times = np.linspace(0, config.duration_years, config.n_time_steps)
@@ -287,9 +280,8 @@ def run_simulation(config):
 
                 event_history.append(event)
 
-                # Write event to HDF5 if enabled
-                if config.use_hdf5:
-                    append_event(h5file, event)
+                # Write event to HDF5
+                append_event(h5file, event)
 
                 # Print progress
                 if len(event_history) == 1:
@@ -325,41 +317,12 @@ def run_simulation(config):
         # Save snapshots AFTER events and correction (captures full state)
         # Save at configured interval (default: every timestep)
         if i % snapshot_interval == 0:
-            if config.use_hdf5:
-                # Buffered write to HDF5
-                hdf5_writer.append(current_time, m_current, m_release_cumulative, event_debt)
-            else:
-                # Legacy: store in memory
-                moment_snapshots.append(m_current.copy())
-                release_snapshots.append(m_release_cumulative.copy())
-                snapshot_times.append(current_time)
+            # Buffered write to HDF5
+            hdf5_writer.append(current_time, m_current, m_release_cumulative, event_debt)
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
     print(f"  Total events: {len(event_history)}")
-
-    # Diagnostic: moment snapshot statistics (skip if using HDF5)
-    if not config.use_hdf5:
-        print(f"\n  Moment Snapshot Diagnostics:")
-        print(f"    Total snapshots saved: {len(moment_snapshots)}")
-        if len(moment_snapshots) > 0:
-            total_moments = [np.sum(m) for m in moment_snapshots]
-            print(
-                f"    Total moment range: {np.min(total_moments):.2e} to {np.max(total_moments):.2e} m³"
-            )
-            if len(total_moments) > 1:
-                moment_changes = np.diff(total_moments)
-                n_drops = np.sum(moment_changes < 0)
-                n_increases = np.sum(moment_changes > 0)
-                print(f"    Timesteps with moment drops: {n_drops}")
-                print(f"    Timesteps with moment increases: {n_increases}")
-                if n_drops > 0:
-                    print(f"    Largest moment drop: {np.min(moment_changes):.2e} m³")
-                    print(f"    Average drop size: {np.mean(moment_changes[moment_changes < 0]):.2e} m³")
-                if n_increases > 0:
-                    print(
-                        f"    Average increase size: {np.mean(moment_changes[moment_changes > 0]):.2e} m³"
-                    )
 
     if len(event_history) > 0:
         total_M0_released = sum(e["M0"] for e in event_history)
@@ -386,39 +349,30 @@ def run_simulation(config):
         print(f"  WARNING: No events generated!")
     print("=" * 70)
 
-    # Finalize and close HDF5 file if enabled
-    if config.use_hdf5:
-        # Flush any remaining buffered snapshots
-        hdf5_writer.flush()
-        print(f"  Flushed remaining buffered snapshots")
+    # Flush any remaining buffered snapshots
+    hdf5_writer.flush()
+    print(f"  Flushed remaining buffered snapshots")
 
-        finalize_simulation(
-            h5file,
-            cumulative_loading,
-            cumulative_release,
-            config.coupling_history,
-            m_current,
-            slip_rate
-        )
-        h5file.close()
-        print(f"\nHDF5 file closed: {Path(config.output_dir) / config.output_hdf5}")
+    finalize_simulation(
+        h5file,
+        cumulative_loading,
+        cumulative_release,
+        config.coupling_history,
+        m_current,
+        slip_rate
+    )
+    h5file.close()
+    print(f"\nHDF5 file closed: {Path(config.output_dir) / config.output_hdf5}")
 
-    # Compile results (for backward compatibility and in-memory diagnostics)
-    # If using HDF5, most arrays are None (not stored in memory)
+    # Return minimal results dict (data already in HDF5)
     results = {
         "config": config,
         "mesh": mesh,
         "slip_rate": slip_rate,
         "event_history": event_history,
-        "moment_snapshots": moment_snapshots,
-        "release_snapshots": release_snapshots,  # Cumulative spatial release
-        "snapshot_times": snapshot_times,
         "final_moment": m_current,
         "cumulative_loading": cumulative_loading,
         "cumulative_release": cumulative_release,
-        "coupling_history": config.coupling_history,  # Stored every 100 years
-        "event_debt_history": np.array(event_debt_history) if not config.use_hdf5 else None,
-        "times": times,  # Time array for plotting
     }
 
     return results
@@ -426,25 +380,9 @@ def run_simulation(config):
 
 def save_results(results, config):
     """
-    Save results to pickle file (legacy, only used if HDF5 disabled)
-
-    If HDF5 is enabled, this function only returns the HDF5 path
-    since data was already written during simulation.
+    Return HDF5 output path (data already written during simulation)
     """
     output_dir = Path(config.output_dir)
-    output_dir.mkdir(exist_ok=True)
-
-    if config.use_hdf5:
-        # HDF5 output was already written during simulation
-        output_path = output_dir / config.output_hdf5
-        print(f"\nResults already saved to HDF5: {output_path}")
-        return output_path
-    else:
-        # Legacy pickle output
-        output_path = output_dir / config.output_pickle
-
-        with open(output_path, "wb") as f:
-            pickle.dump(results, f)
-
-        print(f"\nResults saved to pickle: {output_path}")
-        return output_path
+    output_path = output_dir / config.output_hdf5
+    print(f"\nResults already saved to HDF5: {output_path}")
+    return output_path
