@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from pathlib import Path
+from tqdm import tqdm
 
 FONTSIZE = 10
 
@@ -613,58 +614,80 @@ def plot_cumulative_slip_map(results, config):
 
 def create_moment_animation(results, config):
     """
-    Create animation of moment evolution using contourf/contour style
+    Create animation of moment deficit evolution using contourf/contour style
 
-    This will create an MP4 file showing moment evolution through time
-    Uses the same visual style as plot_cumulative_slip_map
+    This will create an MP4 file showing moment deficit (m_a - m_r) through time
+    Uses symmetric colorbar with fixed limits from extrema
+    Reconstructs deficit same way as plot_moment_snapshots for consistency
     """
-    moment_snapshots = results["moment_snapshots"]
+    release_snapshots = results["release_snapshots"]
     snapshot_times = results["snapshot_times"]
     mesh = results["mesh"]
+    slip_rate = results["slip_rate"]  # m/year per element
+    extrema = results["moment_extrema"]
 
-    # Create grids for contourf plotting (matching slip map style)
+    # Downsample to annual frames (every 365 days)
+    annual_indices = np.arange(0, len(snapshot_times), 365)
+
+    # Compute symmetric colorbar limits from extrema (guaranteed centered at zero)
+    max_abs_deficit = max(abs(extrema['min_deficit']), abs(extrema['max_deficit']))
+    vmin = -max_abs_deficit
+    vmax = max_abs_deficit
+
+    # Create grids for contourf plotting
     length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
     depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
     length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
 
     fig, ax = plt.subplots(figsize=(12, 3))
 
-    # Initial frame setup
-    m_grid = moment_snapshots[0].reshape(mesh["n_along_strike"], mesh["n_down_dip"])
+    # Initial frame setup - RECONSTRUCT deficit (like plot_moment_snapshots)
+    snapshot_idx = annual_indices[0]
+    actual_time = snapshot_times[snapshot_idx]
 
-    # Apply log transform (like slip map)
-    to_plot = np.log10(m_grid.T + 1e-10)  # Add small value to avoid log(0)
-    min_val = np.nanmin(to_plot)
-    to_plot[~np.isfinite(to_plot)] = min_val
+    spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m³
+    spatial_release = release_snapshots[snapshot_idx] * config.element_area_m2  # m³
+    deficit = spatial_loading - spatial_release
 
-    # Initial contourf and contour
+    deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
+
+    # Initial contourf and contour with fixed symmetric limits
     contourf_plot = ax.contourf(
         length_grid,
         depth_grid,
-        to_plot,
-        cmap="cool",
+        deficit_grid,
+        cmap="RdBu_r",
         levels=20,
+        vmin=vmin,
+        vmax=vmax,
     )
 
     contour_plot = ax.contour(
         length_grid,
         depth_grid,
-        to_plot,
+        deficit_grid,
         colors="black",
         linewidths=0.5,
         levels=20,
+        vmin=vmin,
+        vmax=vmax,
     )
 
     ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
     ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
     ax.invert_yaxis()  # Match slip map orientation
-    title = ax.set_title("$t$ = 0.0 years", fontsize=FONTSIZE)
+    title = ax.set_title("$m_\\mathrm{a} - m_\\mathrm{r}$, $t$ = 0.0 years", fontsize=FONTSIZE)
 
     # Add colorbar
     cbar = plt.colorbar(contourf_plot, ax=ax)
-    cbar.set_label("log$_{10}$ moment (m³)", fontsize=FONTSIZE)
+    cbar.set_label("Moment deficit (m³)", fontsize=FONTSIZE)
 
     plt.tight_layout()
+
+    # Setup progress bar for annual frames
+    n_frames = len(annual_indices)
+    print(f"\nCreating moment deficit animation ({n_frames} annual frames from {len(snapshot_times)} snapshots)...")
+    pbar = tqdm(total=n_frames, desc="Rendering frames")
 
     def update(frame):
         """Update function for animation - redraw contours each frame"""
@@ -672,46 +695,58 @@ def create_moment_animation(results, config):
         for c in ax.collections:
             c.remove()
 
-        # Get current frame data
-        m_grid = moment_snapshots[frame].reshape(
-            mesh["n_along_strike"], mesh["n_down_dip"]
-        )
+        # Map frame to annual snapshot index
+        snapshot_idx = annual_indices[frame]
+        actual_time = snapshot_times[snapshot_idx]
 
-        # Apply log transform
-        to_plot = np.log10(m_grid.T + 1e-10)
-        min_val = np.nanmin(to_plot)
-        to_plot[~np.isfinite(to_plot)] = min_val
+        # RECONSTRUCT deficit (same as plot_moment_snapshots)
+        spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m³
+        spatial_release = release_snapshots[snapshot_idx] * config.element_area_m2  # m³
+        deficit = spatial_loading - spatial_release
 
-        # Redraw contourf and contour
+        deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
+
+        # Redraw contourf and contour with fixed symmetric limits
         ax.contourf(
             length_grid,
             depth_grid,
-            to_plot,
-            cmap="cool",
+            deficit_grid,
+            cmap="RdBu_r",
             levels=20,
+            vmin=vmin,
+            vmax=vmax,
         )
 
         ax.contour(
             length_grid,
             depth_grid,
-            to_plot,
+            deficit_grid,
             colors="black",
             linewidths=0.5,
             levels=20,
+            vmin=vmin,
+            vmax=vmax,
         )
 
         # Update title
-        title.set_text(f"$t$ = {snapshot_times[frame]:.1f} years")
+        title.set_text(f"$m_\\mathrm{{a}} - m_\\mathrm{{r}}$, $t$ = {actual_time:.1f} years")
+
+        # Update progress bar
+        pbar.update(1)
 
         return ax.collections + [title]
 
     anim = FuncAnimation(
-        fig, update, frames=len(moment_snapshots), interval=100, blit=False
+        fig, update, frames=n_frames, interval=100, blit=False
     )
 
     # Save
     output_path = Path(config.output_dir) / "moment_evolution.mp4"
     anim.save(output_path, writer="ffmpeg", fps=10, dpi=150)
+
+    # Close progress bar
+    pbar.close()
+
     print(f"Saved animation: {output_path}")
 
     plt.close()
@@ -734,6 +769,6 @@ def plot_all_diagnostics(results, config):
     plot_evolution_overview(results, config)
 
     # Animation (optional, can take time)
-    # create_moment_animation(results, config)
+    create_moment_animation(results, config)
 
     print("\nAll plots generated!")
