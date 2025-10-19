@@ -72,7 +72,7 @@ class Config:
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 1000.0  # Full simulation duration
+    duration_years = 500.0  # Full simulation duration
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility
@@ -81,7 +81,9 @@ class Config:
     # === OUTPUT ===
     output_dir = "results"
     output_hdf5 = "simulation_results.h5"
-    hdf5_compression = 0  # gzip compression level (0=none for speed, 4=balanced, 9=max compression)
+    hdf5_compression = (
+        0  # gzip compression level (0=none for speed, 4=balanced, 9=max compression)
+    )
     snapshot_interval_days = (
         1.0  # Save moment snapshots every N days (1.0 = every timestep)
     )
@@ -125,7 +127,7 @@ class Config:
         config_dict = {}
         for key, value in self.__dict__.items():
             # Skip private attributes and methods
-            if key.startswith('_') or callable(value):
+            if key.startswith("_") or callable(value):
                 continue
             # Store all simple types
             config_dict[key] = value

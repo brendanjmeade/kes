@@ -317,7 +317,8 @@ def append_event(h5file, event):
     h5file.attrs['n_events'] = n + 1
 
 
-def finalize_simulation(h5file, cumulative_loading, cumulative_release, coupling_history, final_moment, slip_rate):
+def finalize_simulation(h5file, cumulative_loading, cumulative_release, coupling_history, final_moment, slip_rate,
+                       min_moment_elem, max_moment_elem, min_release_elem, max_release_elem, min_deficit_elem, max_deficit_elem):
     """
     Store final simulation state and scalars
 
@@ -335,10 +336,24 @@ def finalize_simulation(h5file, cumulative_loading, cumulative_release, coupling
         Final moment distribution (m³)
     slip_rate : ndarray
         Slip rate distribution (m/year)
+    min_moment_elem, max_moment_elem : float
+        Min/max moment on any element throughout simulation
+    min_release_elem, max_release_elem : float
+        Min/max cumulative release on any element
+    min_deficit_elem, max_deficit_elem : float
+        Min/max deficit on any element
     """
     # Store final scalars as attributes
     h5file.attrs['cumulative_loading'] = cumulative_loading
     h5file.attrs['cumulative_release'] = cumulative_release
+
+    # Store per-element extrema for colorbar scaling
+    h5file.attrs['min_moment_elem'] = min_moment_elem
+    h5file.attrs['max_moment_elem'] = max_moment_elem
+    h5file.attrs['min_release_elem'] = min_release_elem
+    h5file.attrs['max_release_elem'] = max_release_elem
+    h5file.attrs['min_deficit_elem'] = min_deficit_elem
+    h5file.attrs['max_deficit_elem'] = max_deficit_elem
 
     # Store final arrays
     h5file.create_dataset('final_moment', data=final_moment, compression='gzip', compression_opts=4)
@@ -432,7 +447,7 @@ class HDF5Results:
             'config', 'mesh', 'event_history', 'moment_snapshots',
             'release_snapshots', 'times', 'event_debt_history', 'lambda_history',
             'snapshot_times', 'cumulative_loading', 'cumulative_release',
-            'final_moment', 'slip_rate', 'coupling_history'
+            'final_moment', 'slip_rate', 'coupling_history', 'moment_extrema'
         ]
         return key in valid_keys
 
@@ -490,6 +505,16 @@ class HDF5Results:
 
         elif key == 'slip_rate':
             return self.h5file['slip_rate'][:]
+
+        elif key == 'moment_extrema':
+            return {
+                'min_moment': self.h5file.attrs['min_moment_elem'],
+                'max_moment': self.h5file.attrs['max_moment_elem'],
+                'min_release': self.h5file.attrs['min_release_elem'],
+                'max_release': self.h5file.attrs['max_release_elem'],
+                'min_deficit': self.h5file.attrs['min_deficit_elem'],
+                'max_deficit': self.h5file.attrs['max_deficit_elem'],
+            }
 
         elif key == 'coupling_history':
             if 'coupling_history' in self.h5file:

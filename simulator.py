@@ -107,6 +107,14 @@ def run_simulation(config):
     # Track spatial cumulative release for visualization
     m_release_cumulative = np.zeros(config.n_elements)  # Cumulative slip released at each element
 
+    # Track per-element extrema for colorbar scaling
+    min_moment_elem = np.inf
+    max_moment_elem = -np.inf
+    min_release_elem = np.inf
+    max_release_elem = -np.inf
+    min_deficit_elem = np.inf
+    max_deficit_elem = -np.inf
+
     print("\n" + "=" * 70)
     print("RUNNING SIMULATION")
     print(f"  Duration: {config.duration_years} years")
@@ -321,6 +329,16 @@ def run_simulation(config):
         # Save snapshots AFTER events and correction (captures full state)
         # Save at configured interval (default: every timestep)
         if i % snapshot_interval == 0:
+            # Update per-element extrema
+            min_moment_elem = min(min_moment_elem, np.min(m_current))
+            max_moment_elem = max(max_moment_elem, np.max(m_current))
+            min_release_elem = min(min_release_elem, np.min(m_release_cumulative))
+            max_release_elem = max(max_release_elem, np.max(m_release_cumulative))
+
+            deficit = m_current - m_release_cumulative
+            min_deficit_elem = min(min_deficit_elem, np.min(deficit))
+            max_deficit_elem = max(max_deficit_elem, np.max(deficit))
+
             # Buffered write to HDF5
             hdf5_writer.append(current_time, m_current, m_release_cumulative, event_debt, lambda_t)
 
@@ -363,7 +381,13 @@ def run_simulation(config):
         cumulative_release,
         config.coupling_history,
         m_current,
-        slip_rate
+        slip_rate,
+        min_moment_elem,
+        max_moment_elem,
+        min_release_elem,
+        max_release_elem,
+        min_deficit_elem,
+        max_deficit_elem
     )
     h5file.close()
     print(f"\nHDF5 file closed: {Path(config.output_dir) / config.output_hdf5}")

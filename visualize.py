@@ -311,7 +311,7 @@ def plot_evolution_overview(results, config):
         moving_annual[i] = np.sum(lambda_incremental[i:end_idx])
 
     # Diagnostic: Print first few years to verify calculation
-    print(f"\nPanel 2 diagnostic (expected events in next year):")
+    print("\nPanel 2 diagnostic (expected events in next year):")
     print(f"  Year 0 (day 0): {moving_annual[0]:.2f} events")
     print(f"  Year 1 (day 365): {moving_annual[365]:.2f} events")
     print(f"  Year 2 (day 730): {moving_annual[730]:.2f} events")
