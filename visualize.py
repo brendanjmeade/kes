@@ -634,6 +634,10 @@ def create_moment_animation(results, config):
     vmin = -max_abs_deficit
     vmax = max_abs_deficit
 
+    # Define symmetric contour levels (fixed for all frames)
+    n_levels = 10
+    levels = np.linspace(vmin, vmax, n_levels)
+
     # Create grids for contourf plotting
     length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
     depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
@@ -657,7 +661,7 @@ def create_moment_animation(results, config):
         depth_grid,
         deficit_grid,
         cmap="RdBu_r",
-        levels=20,
+        levels=levels,
         vmin=vmin,
         vmax=vmax,
     )
@@ -669,7 +673,7 @@ def create_moment_animation(results, config):
         colors="black",
         linewidths=0.5,
         linestyles="solid",
-        levels=20,
+        levels=levels,
         vmin=vmin,
         vmax=vmax,
     )
@@ -717,7 +721,7 @@ def create_moment_animation(results, config):
             depth_grid,
             deficit_grid,
             cmap="RdBu_r",
-            levels=20,
+            levels=levels,
             vmin=vmin,
             vmax=vmax,
         )
@@ -729,7 +733,7 @@ def create_moment_animation(results, config):
             colors="black",
             linewidths=0.5,
             linestyles="solid",
-            levels=20,
+            levels=levels,
             vmin=vmin,
             vmax=vmax,
         )
