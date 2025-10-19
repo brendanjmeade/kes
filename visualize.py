@@ -184,18 +184,6 @@ def plot_evolution_overview(results, config):
     # Extract event times
     event_times = [e["time"] for e in event_history]
 
-    # Compute inter-event times
-    inter_event_times = np.diff(event_times)
-    inter_event_mid_times = [
-        (event_times[i] + event_times[i + 1]) / 2 for i in range(len(event_times) - 1)
-    ]
-
-    # Compute instantaneous rate (1/inter-event time)
-    instantaneous_rates = 1.0 / np.array(inter_event_times)  # events/year
-    instantaneous_rates += (
-        1e-10  # Add small numbers so that there's no problem with logs
-    )
-
     fig = plt.figure(figsize=(10, 8))  # Increased height for 4 panels
 
     # Moment budget
@@ -339,85 +327,25 @@ def plot_evolution_overview(results, config):
     plt.plot(
         annual_times,
         annual_expected,
-        "o-",
-        linewidth=1.0,
+        "-",
+        linewidth=0.25,
         markersize=2,
         color="k",
-        label="Expected (1-yr window)"
+        label="Expected (1-yr window)",
     )
 
     plt.fill_between(
-        annual_times,
-        annual_expected,
-        0,
-        color="tab:pink",
-        edgecolor=None,
-        alpha=0.5
+        annual_times, annual_expected, 0, color="tab:pink", edgecolor=None, alpha=0.5
     )
 
     plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("Expected events (1-year window)", fontsize=FONTSIZE)
+    plt.ylabel("$\\lambda(t)$ (events/yr)", fontsize=FONTSIZE)
     plt.xlim([0, config.duration_years])
-    plt.ylim([0, max(30, np.max(annual_expected) * 1.1)])
-    plt.legend(fontsize=8, loc="upper right")
-
-    plt.subplot(4, 1, 3)
-
-    # Count actual events in each year
-    event_times_array = np.array([e["time"] for e in event_history])
-
-    n_years = int(np.ceil(config.duration_years))
-    year_bins = np.arange(0, n_years + 1, 1.0)  # Bin edges: 0, 1, 2, ..., n_years
-    actual_counts, _ = np.histogram(event_times_array, bins=year_bins)
-
-    # Compute expected events by integrating λ(t) over each year
-    dt_years = config.time_step_days / 365.25
-    expected_counts = np.zeros(n_years)
-    for i in range(n_years):
-        # Find all timesteps in this year
-        mask = (lambda_times >= year_bins[i]) & (lambda_times < year_bins[i + 1])
-        # Integrate: sum(λ × dt)
-        expected_counts[i] = np.sum(lambda_values[mask] * dt_years)
-
-    # Diagnostic: Print first few years to compare with panel 2
-    print(f"\nPanel 3 diagnostic (expected events per year):")
-    print(f"  Year 0: {expected_counts[0]:.2f} events")
-    print(f"  Year 1: {expected_counts[1]:.2f} events")
-    print(f"  Year 2: {expected_counts[2]:.2f} events")
-    print(f"\nThese should match panel 2 values above!")
-
-    year_centers = year_bins[:-1] + 0.5  # Center of each year bin
-
-    # Plot actual counts as bars
-    plt.bar(
-        year_centers,
-        actual_counts,
-        width=1.0,
-        color="tab:gray",
-        edgecolor="black",
-        linewidth=0.1,
-        alpha=0.7,
-        label="Actual events",
-    )
-
-    # Plot expected counts as line
-    plt.plot(
-        year_centers,
-        expected_counts,
-        "r-",
-        linewidth=1.0,
-        alpha=0.8,
-        label="Expected from ∫λ(t)dt",
-    )
-
-    plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("Events/year", fontsize=FONTSIZE)
-    plt.xlim([0, config.duration_years])
-    plt.ylim([0, max(np.max(actual_counts), np.max(expected_counts)) * 1.1])
-    plt.legend(fontsize=8, loc="upper right")
+    plt.ylim([1e-1, 1e2])
+    plt.yscale("log")
 
     # Magnitude time series
-    plt.subplot(4, 1, 4)
+    plt.subplot(4, 1, 3)
     event_history = results["event_history"]
     times = [e["time"] for e in event_history]
     magnitudes = [e["magnitude"] for e in event_history]
