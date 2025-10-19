@@ -566,10 +566,6 @@ def plot_cumulative_slip_map(results, config):
     # Reshape to 2D
     slip_grid = cumulative_slip.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
 
-    # from IPython import embed
-
-    # embed()
-
     # Create grids for contourf plotting
     length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
     depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
@@ -620,6 +616,12 @@ def create_moment_animation(results, config):
     Uses symmetric colorbar with fixed limits from extrema
     Reconstructs deficit same way as plot_moment_snapshots for consistency
     """
+
+    def scale(values):
+        power = 0.2
+        scaled_values = np.sign(values) * (np.abs(values) ** power)
+        return scaled_values
+
     release_snapshots = results["release_snapshots"]
     snapshot_times = results["snapshot_times"]
     mesh = results["mesh"]
@@ -631,11 +633,12 @@ def create_moment_animation(results, config):
 
     # Compute symmetric colorbar limits from extrema (guaranteed centered at zero)
     max_abs_deficit = max(abs(extrema["min_deficit"]), abs(extrema["max_deficit"]))
+    max_abs_deficit = scale(max_abs_deficit)
     vmin = -max_abs_deficit
     vmax = max_abs_deficit
 
     # Define symmetric contour levels (fixed for all frames)
-    n_levels = 10
+    n_levels = 20
     levels = np.linspace(vmin, vmax, n_levels)
 
     # Create grids for contourf plotting
@@ -654,6 +657,7 @@ def create_moment_animation(results, config):
     deficit = spatial_loading - spatial_release
 
     deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
+    deficit_grid = scale(deficit_grid)
 
     # Initial contourf and contour with fixed symmetric limits
     contourf_plot = ax.contourf(
@@ -666,17 +670,17 @@ def create_moment_animation(results, config):
         vmax=vmax,
     )
 
-    contour_plot = ax.contour(
-        length_grid,
-        depth_grid,
-        deficit_grid,
-        colors="black",
-        linewidths=0.5,
-        linestyles="solid",
-        levels=levels,
-        vmin=vmin,
-        vmax=vmax,
-    )
+    # contour_plot = ax.contour(
+    #     length_grid,
+    #     depth_grid,
+    #     deficit_grid,
+    #     colors="black",
+    #     linewidths=0.5,
+    #     linestyles="solid",
+    #     levels=levels,
+    #     vmin=vmin,
+    #     vmax=vmax,
+    # )
 
     ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
     ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
@@ -687,7 +691,7 @@ def create_moment_animation(results, config):
 
     # Add colorbar
     cbar = plt.colorbar(contourf_plot, ax=ax)
-    cbar.set_label("Moment deficit (m³)", fontsize=FONTSIZE)
+    # cbar.set_label("Moment deficit (m³)", fontsize=FONTSIZE)
 
     plt.tight_layout()
 
@@ -714,6 +718,7 @@ def create_moment_animation(results, config):
         deficit = spatial_loading - spatial_release
 
         deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
+        deficit_grid = scale(deficit_grid)
 
         # Redraw contourf and contour with fixed symmetric limits
         ax.contourf(
@@ -726,17 +731,17 @@ def create_moment_animation(results, config):
             vmax=vmax,
         )
 
-        ax.contour(
-            length_grid,
-            depth_grid,
-            deficit_grid,
-            colors="black",
-            linewidths=0.5,
-            linestyles="solid",
-            levels=levels,
-            vmin=vmin,
-            vmax=vmax,
-        )
+        # ax.contour(
+        #     length_grid,
+        #     depth_grid,
+        #     deficit_grid,
+        #     colors="black",
+        #     linewidths=0.5,
+        #     linestyles="solid",
+        #     levels=levels,
+        #     vmin=vmin,
+        #     vmax=vmax,
+        # )
 
         # Update title
         title.set_text(
