@@ -12,7 +12,7 @@ If no path is provided, defaults to results/simulation_results.h5
 
 import sys
 from pathlib import Path
-from visualize import plot_all_diagnostics
+from visualize import plot_all
 from hdf5_io import load_lazy_results
 
 
@@ -47,7 +47,6 @@ def load_results(results_path):
     print(
         f"  Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}"
     )
-    print(f"  Storage: HDF5 (lazy loading)")
 
     return results
 
@@ -63,23 +62,17 @@ def main():
         # Default path
         results_path = Path("results/simulation_results.h5")
 
-    print("=" * 70)
-    print("EARTHQUAKE SIMULATOR - VISUALIZATION")
-    print("=" * 70)
+    print("\nVISUALIZATION (plot_results.py)")
 
     # Load results
     results = load_results(results_path)
     config = results["config"]
 
     # Generate all plots
-    print("\n" + "=" * 70)
-    print("GENERATING PLOTS")
-    print("=" * 70)
-    plot_all_diagnostics(results, config)
+    print("\nGENERATING PLOTS")
+    plot_all(results, config)
 
-    print("\n" + "=" * 70)
-    print("VISUALIZATION COMPLETE!")
-    print("=" * 70)
+    print("\nVISUALIZATION COMPLETE")
     print(f"Plots saved to: {config.output_dir}/")
 
 

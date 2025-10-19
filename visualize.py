@@ -133,42 +133,6 @@ def plot_moment_budget(results, config):
     plt.savefig(f"{config.output_dir}/moment_budget.png", dpi=500)
     plt.close()
 
-    # Debug prints - verify coupling agreement
-    print("\n" + "=" * 70)
-    print("MOMENT BUDGET PLOT DIAGNOSTICS")
-    print("=" * 70)
-    print("From simulator results dict (authoritative):")
-    sim_loading = results.get("cumulative_loading", 0.0)
-    sim_release = results.get("cumulative_release", 0.0)
-    print(f"  cumulative_loading: {sim_loading:.2e} m³")
-    print(f"  cumulative_release: {sim_release:.2e} m³")
-    if sim_loading > 0:
-        sim_coupling = sim_release / sim_loading
-        print(f"  coupling: {sim_coupling:.4f}")
-
-    print("\nPlot final values (should match):")
-    print(f"  cumulative_loading[-1]: {cumulative_loading[-1]:.2e} m³")
-    print(f"  cumulative_release[-1]: {cumulative_release[-1]:.2e} m³")
-    if cumulative_loading[-1] > 0:
-        plot_coupling = cumulative_release[-1] / cumulative_loading[-1]
-        print(f"  coupling: {plot_coupling:.4f}")
-
-    if sim_loading > 0 and cumulative_loading[-1] > 0:
-        loading_match = abs(cumulative_loading[-1] - sim_loading) / sim_loading < 0.01
-        release_match = abs(cumulative_release[-1] - sim_release) / sim_release < 0.01
-        coupling_match = abs(plot_coupling - sim_coupling) < 0.01
-        print("\nAgreement check:")
-        print(
-            f"  Loading match: {loading_match} (Δ={(cumulative_loading[-1] - sim_loading) / sim_loading * 100:.2f}%)"
-        )
-        print(
-            f"  Release match: {release_match} (Δ={(cumulative_release[-1] - sim_release) / sim_release * 100:.2f}%)"
-        )
-        print(
-            f"  Coupling match: {coupling_match} (Δ={(plot_coupling - sim_coupling) * 100:.2f}%)"
-        )
-    print("=" * 70 + "\n")
-
 
 def plot_evolution_overview(results, config):
     """
@@ -311,14 +275,7 @@ def plot_evolution_overview(results, config):
         end_idx = min(i + window_days, len(lambda_values))
         moving_annual[i] = np.sum(lambda_incremental[i:end_idx])
 
-    # Diagnostic: Print first few years to verify calculation
-    print("\nPanel 2 diagnostic (expected events in next year):")
-    print(f"  Year 0 (day 0): {moving_annual[0]:.2f} events")
-    print(f"  Year 1 (day 365): {moving_annual[365]:.2f} events")
-    print(f"  Year 2 (day 730): {moving_annual[730]:.2f} events")
-
     # Downsample to annual resolution for clearer visualization
-    # Sample at the start of each year (days 0, 365, 730, ...)
     n_years = int(np.ceil(config.duration_years))
     annual_indices = np.arange(0, min(n_years * 365, len(moving_annual)), 365)
     annual_times = lambda_times[annual_indices]
@@ -381,67 +338,6 @@ def plot_evolution_overview(results, config):
 
     # Save
     output_path = Path(config.output_dir) / "evolution_overview.png"
-    plt.savefig(output_path, dpi=500, bbox_inches="tight")
-    print(f"Saved: {output_path}")
-
-    return fig
-
-
-def plot_magnitude_time_series(results, config):
-    """
-    Plot magnitude vs time
-    """
-    event_history = results["event_history"]
-
-    if len(event_history) == 0:
-        print("No events to plot")
-        return
-
-    times = [e["time"] for e in event_history]
-    magnitudes = [e["magnitude"] for e in event_history]
-
-    fig, ax = plt.subplots(figsize=(12, 2))
-
-    # Plot events
-    for i in range(len(times)):
-        plt.plot(
-            [times[i], times[i]], [3.5, magnitudes[i]], "-k", linewidth=0.5, zorder=1
-        )
-
-    ax.scatter(
-        times,
-        magnitudes,
-        c=magnitudes,
-        cmap="YlOrRd",
-        s=1e-4 * np.array(magnitudes) ** 8.0,
-        alpha=1.0,
-        edgecolors="black",
-        linewidth=0.5,
-        zorder=10,
-    )
-
-    ax.set_xlabel("$t$ (years)", fontsize=FONTSIZE)
-    ax.set_ylabel("$M$", fontsize=FONTSIZE)
-    ax.set_title(
-        f"{len(event_history)} events",
-        fontsize=FONTSIZE,
-        fontweight="bold",
-    )
-    ax.grid(True, alpha=0.3)
-    ax.set_xlim(0, config.duration_years)
-
-    # Color bar
-    sm = plt.cm.ScalarMappable(
-        cmap="YlOrRd", norm=plt.Normalize(vmin=min(magnitudes), vmax=max(magnitudes))
-    )
-    sm.set_array([])
-    cbar = plt.colorbar(sm, ax=ax)
-    cbar.set_label("Magnitude", fontsize=FONTSIZE)
-
-    plt.tight_layout()
-
-    # Save
-    output_path = Path(config.output_dir) / "magnitude_time_series.png"
     plt.savefig(output_path, dpi=500, bbox_inches="tight")
     print(f"Saved: {output_path}")
 
@@ -664,7 +560,7 @@ def create_moment_animation(results, config):
         length_grid,
         depth_grid,
         deficit_grid,
-        cmap="RdBu_r",
+        cmap="Spectral_r",
         levels=levels,
         vmin=vmin,
         vmax=vmax,
@@ -725,7 +621,7 @@ def create_moment_animation(results, config):
             length_grid,
             depth_grid,
             deficit_grid,
-            cmap="RdBu_r",
+            cmap="Spectral_r",
             levels=levels,
             vmin=vmin,
             vmax=vmax,
@@ -767,21 +663,16 @@ def create_moment_animation(results, config):
     return output_path
 
 
-def plot_all_diagnostics(results, config):
+def plot_all(results, config):
     """
-    Generate all diagnostic plots
+    Generate all plots
     """
     print("\nGenerating plots...")
 
-    plot_magnitude_time_series(results, config)
     plot_moment_snapshots(results, config)
     plot_cumulative_slip_map(results, config)
-
-    # NEW PLOTS
     plot_moment_budget(results, config)
     plot_evolution_overview(results, config)
 
-    # Animation (optional, can take time)
+    # Animation (can take a long time)
     create_moment_animation(results, config)
-
-    print("\nAll plots generated!")
