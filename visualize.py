@@ -630,7 +630,7 @@ def create_moment_animation(results, config):
     annual_indices = np.arange(0, len(snapshot_times), 365)
 
     # Compute symmetric colorbar limits from extrema (guaranteed centered at zero)
-    max_abs_deficit = max(abs(extrema['min_deficit']), abs(extrema['max_deficit']))
+    max_abs_deficit = max(abs(extrema["min_deficit"]), abs(extrema["max_deficit"]))
     vmin = -max_abs_deficit
     vmax = max_abs_deficit
 
@@ -639,7 +639,7 @@ def create_moment_animation(results, config):
     depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
     length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
 
-    fig, ax = plt.subplots(figsize=(12, 3))
+    fig, ax = plt.subplots(figsize=(12, 2))
 
     # Initial frame setup - RECONSTRUCT deficit (like plot_moment_snapshots)
     snapshot_idx = annual_indices[0]
@@ -668,6 +668,7 @@ def create_moment_animation(results, config):
         deficit_grid,
         colors="black",
         linewidths=0.5,
+        linestyles="solid",
         levels=20,
         vmin=vmin,
         vmax=vmax,
@@ -676,7 +677,9 @@ def create_moment_animation(results, config):
     ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
     ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
     ax.invert_yaxis()  # Match slip map orientation
-    title = ax.set_title("$m_\\mathrm{a} - m_\\mathrm{r}$, $t$ = 0.0 years", fontsize=FONTSIZE)
+    title = ax.set_title(
+        "$m_\\mathrm{a} - m_\\mathrm{r}$, $t$ = 0.0 years", fontsize=FONTSIZE
+    )
 
     # Add colorbar
     cbar = plt.colorbar(contourf_plot, ax=ax)
@@ -686,7 +689,9 @@ def create_moment_animation(results, config):
 
     # Setup progress bar for annual frames
     n_frames = len(annual_indices)
-    print(f"\nCreating moment deficit animation ({n_frames} annual frames from {len(snapshot_times)} snapshots)...")
+    print(
+        f"\nCreating moment deficit animation ({n_frames} annual frames from {len(snapshot_times)} snapshots)..."
+    )
     pbar = tqdm(total=n_frames, desc="Rendering frames")
 
     def update(frame):
@@ -723,32 +728,31 @@ def create_moment_animation(results, config):
             deficit_grid,
             colors="black",
             linewidths=0.5,
+            linestyles="solid",
             levels=20,
             vmin=vmin,
             vmax=vmax,
         )
 
         # Update title
-        title.set_text(f"$m_\\mathrm{{a}} - m_\\mathrm{{r}}$, $t$ = {actual_time:.1f} years")
+        title.set_text(
+            f"$m_\\mathrm{{a}} - m_\\mathrm{{r}}$, $t$ = {actual_time:.1f} years"
+        )
 
         # Update progress bar
         pbar.update(1)
 
         return ax.collections + [title]
 
-    anim = FuncAnimation(
-        fig, update, frames=n_frames, interval=100, blit=False
-    )
+    anim = FuncAnimation(fig, update, frames=n_frames, interval=100, blit=False)
 
     # Save
     output_path = Path(config.output_dir) / "moment_evolution.mp4"
-    anim.save(output_path, writer="ffmpeg", fps=10, dpi=150)
+    anim.save(output_path, writer="ffmpeg", fps=20, dpi=300)
 
     # Close progress bar
     pbar.close()
-
     print(f"Saved animation: {output_path}")
-
     plt.close()
 
     return output_path
