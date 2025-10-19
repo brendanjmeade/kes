@@ -72,7 +72,7 @@ class Config:
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 100.0  # Full simulation duration
+    duration_years = 1000.0  # Full simulation duration
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility
