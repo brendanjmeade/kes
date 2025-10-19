@@ -97,6 +97,7 @@ def run_simulation(config):
     # Deterministic accumulator for fractional events
     event_debt = 0.0
     event_debt_history = []  # Track debt over time for visualization
+    lambda_history = []  # Track instantaneous rate λ(t) for visualization
 
     # Track cumulative moment for rate calculation
     initial_moment = np.sum(m_current)
@@ -158,6 +159,9 @@ def run_simulation(config):
 
         # Store debt BEFORE event subtraction (to capture peaks > 1.0)
         event_debt_history.append(event_debt)
+
+        # Store instantaneous rate
+        lambda_history.append(lambda_t)
 
         # Generate integer number of events when debt ≥ 1
         n_events = int(event_debt)
@@ -318,7 +322,7 @@ def run_simulation(config):
         # Save at configured interval (default: every timestep)
         if i % snapshot_interval == 0:
             # Buffered write to HDF5
-            hdf5_writer.append(current_time, m_current, m_release_cumulative, event_debt)
+            hdf5_writer.append(current_time, m_current, m_release_cumulative, event_debt, lambda_t)
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")

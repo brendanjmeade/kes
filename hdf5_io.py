@@ -105,6 +105,16 @@ def create_hdf5_file(filepath, config, mesh):
         **compression_kwargs
     )
 
+    # Lambda history (instantaneous rate at each timestep)
+    h5file.create_dataset(
+        'lambda_history',
+        shape=(0,),
+        maxshape=(None,),
+        dtype='f8',
+        chunks=(chunk_size,),
+        **compression_kwargs
+    )
+
     # Create variable-length dataset for events
     # Events will be stored as a compound datatype for efficiency
     event_dtype = np.dtype([
@@ -166,8 +176,9 @@ class BufferedHDF5Writer:
         self.moment_buffer = []
         self.release_buffer = []
         self.debt_buffer = []
+        self.lambda_buffer = []
 
-    def append(self, time, m_current, m_release_cumulative, event_debt):
+    def append(self, time, m_current, m_release_cumulative, event_debt, lambda_t):
         """
         Append snapshot to buffer
 
@@ -177,6 +188,7 @@ class BufferedHDF5Writer:
         self.moment_buffer.append(m_current.copy())
         self.release_buffer.append(m_release_cumulative.copy())
         self.debt_buffer.append(event_debt)
+        self.lambda_buffer.append(lambda_t)
 
         # Flush if buffer is full
         if len(self.times_buffer) >= self.buffer_size:
@@ -197,12 +209,14 @@ class BufferedHDF5Writer:
         self.h5file['moment_snapshots'].resize((n + n_new, self.moment_buffer[0].shape[0]))
         self.h5file['release_snapshots'].resize((n + n_new, self.release_buffer[0].shape[0]))
         self.h5file['event_debt_history'].resize((n + n_new,))
+        self.h5file['lambda_history'].resize((n + n_new,))
 
         # Write batch
         self.h5file['times'][n:n+n_new] = np.array(self.times_buffer)
         self.h5file['moment_snapshots'][n:n+n_new, :] = np.array(self.moment_buffer)
         self.h5file['release_snapshots'][n:n+n_new, :] = np.array(self.release_buffer)
         self.h5file['event_debt_history'][n:n+n_new] = np.array(self.debt_buffer)
+        self.h5file['lambda_history'][n:n+n_new] = np.array(self.lambda_buffer)
 
         # Update counter
         self.h5file.attrs['n_snapshots'] = n + n_new
@@ -212,6 +226,7 @@ class BufferedHDF5Writer:
         self.moment_buffer = []
         self.release_buffer = []
         self.debt_buffer = []
+        self.lambda_buffer = []
 
 
 def append_snapshot(h5file, time, m_current, m_release_cumulative, event_debt):
@@ -415,7 +430,7 @@ class HDF5Results:
         """
         valid_keys = [
             'config', 'mesh', 'event_history', 'moment_snapshots',
-            'release_snapshots', 'times', 'event_debt_history',
+            'release_snapshots', 'times', 'event_debt_history', 'lambda_history',
             'snapshot_times', 'cumulative_loading', 'cumulative_release',
             'final_moment', 'slip_rate', 'coupling_history'
         ]
@@ -456,7 +471,7 @@ class HDF5Results:
                 self._events = self._load_events()
             return self._events
 
-        elif key in ['moment_snapshots', 'release_snapshots', 'times', 'event_debt_history']:
+        elif key in ['moment_snapshots', 'release_snapshots', 'times', 'event_debt_history', 'lambda_history']:
             # Return HDF5 dataset directly for lazy slicing
             return self.h5file[key]
 

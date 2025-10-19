@@ -297,51 +297,124 @@ def plot_evolution_overview(results, config):
     plt.xlim(0, config.duration_years)
     plt.ylim(-moment_deficit_y_lim, moment_deficit_y_lim)
 
-    # Instantaneous rate
+    # Expected events (1-year rolling window from λ(t))
     plt.subplot(4, 1, 2)
+
+    # Load λ(t) time series that was stored during simulation
+    lambda_times = results["times"]
+    lambda_values = results["lambda_history"]
+
+    # Convert to NumPy arrays if HDF5 datasets
+    if hasattr(lambda_times, "shape"):
+        lambda_times = lambda_times[:]
+    if hasattr(lambda_values, "shape"):
+        lambda_values = lambda_values[:]
+
+    # Convert λ(t) to incremental expected events per timestep
+    dt_years = config.time_step_days / 365.25
+    lambda_incremental = lambda_values * dt_years  # Expected events per day
+
+    # Compute 1-year forward-looking rolling sum
+    window_days = 365
+    moving_annual = np.zeros(len(lambda_values))
+    for i in range(len(lambda_values)):
+        # Sum next 365 days (or remaining days at end)
+        end_idx = min(i + window_days, len(lambda_values))
+        moving_annual[i] = np.sum(lambda_incremental[i:end_idx])
+
+    # Diagnostic: Print first few years to verify calculation
+    print(f"\nPanel 2 diagnostic (expected events in next year):")
+    print(f"  Year 0 (day 0): {moving_annual[0]:.2f} events")
+    print(f"  Year 1 (day 365): {moving_annual[365]:.2f} events")
+    print(f"  Year 2 (day 730): {moving_annual[730]:.2f} events")
+
+    # Downsample to annual resolution for clearer visualization
+    # Sample at the start of each year (days 0, 365, 730, ...)
+    n_years = int(np.ceil(config.duration_years))
+    annual_indices = np.arange(0, min(n_years * 365, len(moving_annual)), 365)
+    annual_times = lambda_times[annual_indices]
+    annual_expected = moving_annual[annual_indices]
+
+    # Plot expected events in next year (downsampled to annual)
     plt.plot(
-        inter_event_mid_times,
-        instantaneous_rates,
-        "-",
-        linewidth=0.25,
+        annual_times,
+        annual_expected,
+        "o-",
+        linewidth=1.0,
+        markersize=2,
         color="k",
+        label="Expected (1-yr window)"
     )
 
     plt.fill_between(
-        inter_event_mid_times,
-        instantaneous_rates,
-        0.5,
+        annual_times,
+        annual_expected,
+        0,
         color="tab:pink",
         edgecolor=None,
+        alpha=0.5
     )
 
     plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("$\\lambda(t)$ (events/year)", fontsize=FONTSIZE)
+    plt.ylabel("Expected events (1-year window)", fontsize=FONTSIZE)
     plt.xlim([0, config.duration_years])
-    plt.ylim([0.5, 1e3])
-    plt.yscale("log")
+    plt.ylim([0, max(30, np.max(annual_expected) * 1.1)])
+    plt.legend(fontsize=8, loc="upper right")
 
-    # Event debt
     plt.subplot(4, 1, 3)
 
-    # Get event debt history and times
-    debt_times = results["times"]
-    debt_values = results["event_debt_history"]
+    # Count actual events in each year
+    event_times_array = np.array([e["time"] for e in event_history])
 
-    # Convert to NumPy arrays if HDF5 datasets
-    if hasattr(debt_times, "shape"):
-        debt_times = debt_times[:]
-    if hasattr(debt_values, "shape"):
-        debt_values = debt_values[:]
+    n_years = int(np.ceil(config.duration_years))
+    year_bins = np.arange(0, n_years + 1, 1.0)  # Bin edges: 0, 1, 2, ..., n_years
+    actual_counts, _ = np.histogram(event_times_array, bins=year_bins)
 
-    # Plot debt evolution
-    plt.plot(debt_times, debt_values, "-", linewidth=0.25, color="tab:gray", alpha=1.0)
+    # Compute expected events by integrating λ(t) over each year
+    dt_years = config.time_step_days / 365.25
+    expected_counts = np.zeros(n_years)
+    for i in range(n_years):
+        # Find all timesteps in this year
+        mask = (lambda_times >= year_bins[i]) & (lambda_times < year_bins[i + 1])
+        # Integrate: sum(λ × dt)
+        expected_counts[i] = np.sum(lambda_values[mask] * dt_years)
+
+    # Diagnostic: Print first few years to compare with panel 2
+    print(f"\nPanel 3 diagnostic (expected events per year):")
+    print(f"  Year 0: {expected_counts[0]:.2f} events")
+    print(f"  Year 1: {expected_counts[1]:.2f} events")
+    print(f"  Year 2: {expected_counts[2]:.2f} events")
+    print(f"\nThese should match panel 2 values above!")
+
+    year_centers = year_bins[:-1] + 0.5  # Center of each year bin
+
+    # Plot actual counts as bars
+    plt.bar(
+        year_centers,
+        actual_counts,
+        width=1.0,
+        color="tab:gray",
+        edgecolor="black",
+        linewidth=0.1,
+        alpha=0.7,
+        label="Actual events",
+    )
+
+    # Plot expected counts as line
+    plt.plot(
+        year_centers,
+        expected_counts,
+        "r-",
+        linewidth=1.0,
+        alpha=0.8,
+        label="Expected from ∫λ(t)dt",
+    )
 
     plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("$d(t)$", fontsize=FONTSIZE)
+    plt.ylabel("Events/year", fontsize=FONTSIZE)
     plt.xlim([0, config.duration_years])
-    max_debt = np.max(debt_values)
-    plt.ylim([0, max(1.1, max_debt * 1.1)])  # At least 1.1, or 10% above max
+    plt.ylim([0, max(np.max(actual_counts), np.max(expected_counts)) * 1.1])
+    plt.legend(fontsize=8, loc="upper right")
 
     # Magnitude time series
     plt.subplot(4, 1, 4)
