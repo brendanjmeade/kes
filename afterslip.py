@@ -87,17 +87,20 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
     Initialize afterslip sequence following a coseismic event
 
     Computes:
-    - Residual moment field: m_residual = m_current - m_coseismic
+    - Residual moment field: m_residual = m_accumulated - m_coseismic
     - Spatial activation Φ
     - Initial velocity field: v₀ = v_ref × (M/M_ref)^β × Φ × m_residual
     - Decay rates per element
+
+    Uses uniform accumulated moment (mid-cycle value) to create spatial contrast,
+    matching the MaxEnt reference implementation.
 
     Parameters:
     -----------
     event : dict
         Event record with 'ruptured_elements', 'slip', 'magnitude', 'time'
     m_current : (n_elements,) array
-        Current moment field AFTER the coseismic release
+        Current moment field AFTER the coseismic release (not used for m_residual calculation)
     mesh : dict
         Fault mesh
     config : Config
@@ -113,12 +116,18 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
     ruptured_elements = event['ruptured_elements']
     slip_coseismic = event['slip']
 
+    # Residual moment = actual moment field after earthquake
+    # m_current was passed in AFTER coseismic slip was removed
+    # So it already represents m_accumulated - m_coseismic
+    # This is the local moment deficit that drives afterslip
+    m_residual_initial = m_current.copy()
+
+    # Apply threshold: only patches with sufficient moment participate
+    m_residual_initial = np.maximum(m_residual_initial, 0.0)
+    m_residual_initial[m_residual_initial < config.afterslip_m_critical] = 0.0
+
     # Calculate spatial activation kernel
     Phi = calculate_spatial_activation_kernel(mesh, ruptured_elements, magnitude, config)
-
-    # CRITICAL FIX: Limit afterslip to spatial halo around rupture
-    # Only allow afterslip where Phi > threshold (prevents whole-fault release)
-    spatial_mask = Phi >= config.afterslip_spatial_threshold
 
     # Magnitude scaling for initial velocity
     # v_mag = v_ref × (M / M_ref)^β
@@ -126,22 +135,13 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
         magnitude / config.afterslip_M_ref
     ) ** config.afterslip_beta
 
-    # Initial velocity field: v ∝ Φ × slip_coseismic
-    # Afterslip is strongest near rupture edges where coseismic slip was largest
-    # and decays exponentially with distance via Phi kernel
-    v_initial = v_mag_scale * Phi * slip_coseismic
-
-    # Apply spatial threshold - zero out far-field regions
-    v_initial[~spatial_mask] = 0.0
-
-    # Compute available moment for afterslip from current deficit
-    # (limits total afterslip to what's actually accumulated)
-    m_residual_initial = m_current.copy()
-    m_residual_initial = np.maximum(m_residual_initial, 0.0)
-    m_residual_initial[m_residual_initial < config.afterslip_m_critical] = 0.0
-    m_residual_initial[~spatial_mask] = 0.0  # Zero out far-field regions
+    # Initial velocity field (MaxEnt form: v ∝ Φ × m_residual)
+    # This creates peak afterslip in halo region (high m_residual, medium Phi)
+    # and lower afterslip on ruptured patch (low m_residual despite high Phi)
+    v_initial = v_mag_scale * Phi * m_residual_initial
 
     # Apply minimum velocity threshold for numerical stability
+    # No spatial threshold - let natural Phi × m_residual product determine extent
     v_initial[v_initial < config.afterslip_v_min] = 0.0
 
     # Decay rates: decay_rate = v₀ × A / m_residual₀

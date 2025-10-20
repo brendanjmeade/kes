@@ -12,7 +12,7 @@ class Config:
     # === GEOMETRY ===
     fault_length_km = 200.0  # Along-strike length (km)
     fault_depth_km = 25.0  # Down-dip depth (km)
-    element_size_km = 0.5  # Grid cell size (km)
+    element_size_km = 1.0  # Grid cell size (km)
 
     # === MOMENT ACCUMULATION ===
     # Background slip deficit rate
@@ -35,7 +35,7 @@ class Config:
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
-    M_min = 4.0  # Minimum magnitude
+    M_min = 5.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
     # === ADAPTIVE RATE CORRECTION ===
@@ -71,9 +71,9 @@ class Config:
     afterslip_M_ref = 7.0  # Reference magnitude for velocity scaling
     afterslip_beta = 0.33  # Magnitude scaling exponent (1/3 from MaxEnt theory)
     afterslip_correlation_length_x_km = (
-        15.0  # Spatial correlation length ξ_x (along-strike)
+        30.0  # Spatial correlation length ξ_x (along-strike)
     )
-    afterslip_correlation_length_z_km = 8.0  # Spatial correlation length ξ_z (down-dip)
+    afterslip_correlation_length_z_km = 15.0  # Spatial correlation length ξ_z (down-dip)
     afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
     afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
     afterslip_duration_years = 10.0  # Track sequences for this many years
@@ -95,7 +95,7 @@ class Config:
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 3000.0  # Full simulation duration
+    duration_years = 1000.0  # Full simulation duration
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility
