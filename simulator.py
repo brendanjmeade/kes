@@ -21,6 +21,12 @@ from temporal_prob import (
 from spatial_prob import spatial_probability
 from slip_generator import generate_slip_distribution
 from hdf5_io import create_hdf5_file, BufferedHDF5Writer, append_event, finalize_simulation
+from afterslip import (
+    initialize_afterslip_sequence,
+    update_afterslip_sequences,
+    get_active_afterslip_sequences,
+    compute_aftershock_spatial_weights,
+)
 
 
 def draw_magnitude(config):
@@ -99,6 +105,10 @@ def run_simulation(config):
     event_debt_history = []  # Track debt over time for visualization
     lambda_history = []  # Track instantaneous rate λ(t) for visualization
 
+    # Afterslip sequence tracking
+    afterslip_sequences = []  # Track active afterslip sequences
+    afterslip_cumulative = np.zeros(config.n_elements)  # Total afterslip over simulation
+
     # Track cumulative moment for rate calculation
     initial_moment = np.sum(m_current)
     cumulative_loading = 0.0  # FIX: Start at zero, add initial moment to first update
@@ -142,6 +152,29 @@ def run_simulation(config):
 
     # Simulation loop
     for i, current_time in enumerate(tqdm(times, desc="Simulating")):
+        # Update afterslip BEFORE tectonic loading (afterslip reduces moment deficit)
+        if config.afterslip_enabled and len(afterslip_sequences) > 0:
+            # Get sequences still active at current time
+            active_seqs = get_active_afterslip_sequences(
+                afterslip_sequences, current_time, config.afterslip_duration_years
+            )
+
+            if len(active_seqs) > 0:
+                # Update velocities and compute moment release
+                afterslip_release = update_afterslip_sequences(
+                    active_seqs, current_time, dt_years, config
+                )
+
+                # Apply afterslip release to moment field (reduces deficit)
+                m_current -= afterslip_release  # Element-wise slip (m)
+
+                # Track cumulative afterslip
+                afterslip_cumulative += afterslip_release
+
+                # Track in global cumulative release (afterslip is aseismic release)
+                geom_moment_afterslip = np.sum(afterslip_release * config.element_area_m2)
+                cumulative_release += geom_moment_afterslip
+
         # Accumulate moment
         m_current = accumulate_moment(
             m_current, slip_rate, config.element_area_m2, dt_years
@@ -178,6 +211,11 @@ def run_simulation(config):
         # Generate each event
         if n_events > 0:
             m_working = m_current.copy()
+
+            # Compute spatial weights for aftershock localization (if enabled)
+            aftershock_spatial_weights, n_active_aftershock_seqs = compute_aftershock_spatial_weights(
+                event_history, current_time, config
+            )
 
             # for j in range(n_events):
             #     # Draw magnitude from G-R distribution
@@ -243,9 +281,9 @@ def run_simulation(config):
                 # Draw magnitude from G-R distribution
                 magnitude = draw_magnitude(config)
 
-                # Compute spatial probability for this magnitude
+                # Compute spatial probability for this magnitude (with aftershock weighting)
                 p_spatial, gamma_used = spatial_probability(
-                    m_working, magnitude, config
+                    m_working, magnitude, config, aftershock_spatial_weights
                 )
 
                 # Sample hypocenter location
@@ -295,6 +333,21 @@ def run_simulation(config):
                 # Write event to HDF5
                 append_event(h5file, event)
 
+                # Trigger afterslip if magnitude is large enough
+                if config.afterslip_enabled and M_actual >= config.afterslip_M_min:
+                    # Initialize afterslip sequence (uses m_working which already has slip removed)
+                    afterslip_seq = initialize_afterslip_sequence(
+                        event, m_working, mesh, config
+                    )
+                    afterslip_sequences.append(afterslip_seq)
+
+                    # Store reference to spatial activation in event (for aftershock localization)
+                    event['spatial_activation'] = afterslip_seq['Phi']
+                    event['afterslip_sequence_id'] = len(afterslip_sequences) - 1
+                else:
+                    event['spatial_activation'] = None
+                    event['afterslip_sequence_id'] = None
+
                 # Print progress
                 if len(event_history) == 1:
                     tqdm.write(
@@ -340,7 +393,7 @@ def run_simulation(config):
             max_deficit_elem = max(max_deficit_elem, np.max(deficit))
 
             # Buffered write to HDF5
-            hdf5_writer.append(current_time, m_current, m_release_cumulative, event_debt, lambda_t)
+            hdf5_writer.append(current_time, m_current, m_release_cumulative, event_debt, lambda_t, afterslip_cumulative)
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")

@@ -519,6 +519,7 @@ def create_moment_animation(results, config):
         return scaled_values
 
     release_snapshots = results["release_snapshots"]
+    afterslip_snapshots = results["afterslip_snapshots"]  # NEW: Load afterslip data
     snapshot_times = results["snapshot_times"]
     mesh = results["mesh"]
     slip_rate = results["slip_rate"]  # m/year per element
@@ -527,27 +528,36 @@ def create_moment_animation(results, config):
     # Downsample to annual frames (every 365 days)
     annual_indices = np.arange(0, len(snapshot_times), 365)
 
-    # Compute symmetric colorbar limits from extrema (guaranteed centered at zero)
+    # Compute symmetric colorbar limits for DEFICIT from extrema (guaranteed centered at zero)
     max_abs_deficit = max(abs(extrema["min_deficit"]), abs(extrema["max_deficit"]))
     max_abs_deficit = scale(max_abs_deficit)
-    vmin = -max_abs_deficit
-    vmax = max_abs_deficit
+    vmin_deficit = -max_abs_deficit
+    vmax_deficit = max_abs_deficit
 
-    # Define symmetric contour levels (fixed for all frames)
+    # Compute afterslip colorbar limits (not symmetric - cumulative only grows)
+    max_afterslip_elem = np.max(afterslip_snapshots[-1])  # Maximum at final time (m)
+    max_afterslip_scaled = scale(max_afterslip_elem * config.element_area_m2)  # Scale to m³
+    vmin_afterslip = 0.0
+    vmax_afterslip = max_afterslip_scaled
+
+    # Define contour levels (fixed for all frames)
     n_levels = 20
-    levels = np.linspace(vmin, vmax, n_levels)
+    levels_deficit = np.linspace(vmin_deficit, vmax_deficit, n_levels)  # Symmetric
+    levels_afterslip = np.linspace(vmin_afterslip, vmax_afterslip, n_levels)  # Non-symmetric
 
     # Create grids for contourf plotting
     length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
     depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
     length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
 
-    fig, ax = plt.subplots(figsize=(12, 2))
+    # Create figure with 2 vertically stacked panels
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 5))
 
-    # Initial frame setup - RECONSTRUCT deficit (like plot_moment_snapshots)
+    # Initial frame setup
     snapshot_idx = annual_indices[0]
     actual_time = snapshot_times[snapshot_idx]
 
+    # ===== PANEL 1 (TOP): Moment Deficit =====
     spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m³
     spatial_release = release_snapshots[snapshot_idx] * config.element_area_m2  # m³
     deficit = spatial_loading - spatial_release
@@ -555,39 +565,54 @@ def create_moment_animation(results, config):
     deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
     deficit_grid = scale(deficit_grid)
 
-    # Initial contourf and contour with fixed symmetric limits
-    contourf_plot = ax.contourf(
+    # Initial contourf with symmetric limits
+    contourf_deficit = ax1.contourf(
         length_grid,
         depth_grid,
         deficit_grid,
         cmap="Spectral_r",
-        levels=levels,
-        vmin=vmin,
-        vmax=vmax,
+        levels=levels_deficit,
+        vmin=vmin_deficit,
+        vmax=vmax_deficit,
     )
 
-    # contour_plot = ax.contour(
-    #     length_grid,
-    #     depth_grid,
-    #     deficit_grid,
-    #     colors="black",
-    #     linewidths=0.5,
-    #     linestyles="solid",
-    #     levels=levels,
-    #     vmin=vmin,
-    #     vmax=vmax,
-    # )
-
-    ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
-    ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
-    ax.invert_yaxis()  # Match slip map orientation
-    title = ax.set_title(
+    ax1.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax1.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+    ax1.set_aspect('equal')
+    ax1.invert_yaxis()  # Match slip map orientation
+    title1 = ax1.set_title(
         "$m_\\mathrm{a} - m_\\mathrm{r}$, $t$ = 0.0 years", fontsize=FONTSIZE
     )
 
     # Add colorbar
-    cbar = plt.colorbar(contourf_plot, ax=ax)
-    # cbar.set_label("Moment deficit (m³)", fontsize=FONTSIZE)
+    cbar1 = plt.colorbar(contourf_deficit, ax=ax1)
+
+    # ===== PANEL 2 (BOTTOM): Afterslip Cumulative Release =====
+    spatial_afterslip = afterslip_snapshots[snapshot_idx] * config.element_area_m2  # m³
+    afterslip_grid = spatial_afterslip.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
+    afterslip_grid = scale(afterslip_grid)
+
+    # Initial contourf with non-symmetric limits (0 to max)
+    contourf_afterslip = ax2.contourf(
+        length_grid,
+        depth_grid,
+        afterslip_grid,
+        cmap="YlOrRd",  # Sequential colormap for cumulative
+        levels=levels_afterslip,
+        vmin=vmin_afterslip,
+        vmax=vmax_afterslip,
+    )
+
+    ax2.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax2.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+    ax2.set_aspect('equal')
+    ax2.invert_yaxis()
+    title2 = ax2.set_title(
+        "Afterslip cumulative release, $t$ = 0.0 years", fontsize=FONTSIZE
+    )
+
+    # Add colorbar
+    cbar2 = plt.colorbar(contourf_afterslip, ax=ax2)
 
     plt.tight_layout()
 
@@ -599,16 +624,18 @@ def create_moment_animation(results, config):
     pbar = tqdm(total=n_frames, desc="Rendering frames")
 
     def update(frame):
-        """Update function for animation - redraw contours each frame"""
-        # Clear previous contours
-        for c in ax.collections:
+        """Update function for animation - redraw contours for both panels"""
+        # Clear previous contours from BOTH panels
+        for c in ax1.collections:
+            c.remove()
+        for c in ax2.collections:
             c.remove()
 
         # Map frame to annual snapshot index
         snapshot_idx = annual_indices[frame]
         actual_time = snapshot_times[snapshot_idx]
 
-        # RECONSTRUCT deficit (same as plot_moment_snapshots)
+        # ===== PANEL 1: Moment Deficit =====
         spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m³
         spatial_release = release_snapshots[snapshot_idx] * config.element_area_m2  # m³
         deficit = spatial_loading - spatial_release
@@ -616,38 +643,47 @@ def create_moment_animation(results, config):
         deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
         deficit_grid = scale(deficit_grid)
 
-        # Redraw contourf and contour with fixed symmetric limits
-        ax.contourf(
+        # Redraw contourf with fixed symmetric limits
+        ax1.contourf(
             length_grid,
             depth_grid,
             deficit_grid,
             cmap="Spectral_r",
-            levels=levels,
-            vmin=vmin,
-            vmax=vmax,
+            levels=levels_deficit,
+            vmin=vmin_deficit,
+            vmax=vmax_deficit,
         )
 
-        # ax.contour(
-        #     length_grid,
-        #     depth_grid,
-        #     deficit_grid,
-        #     colors="black",
-        #     linewidths=0.5,
-        #     linestyles="solid",
-        #     levels=levels,
-        #     vmin=vmin,
-        #     vmax=vmax,
-        # )
+        # Update title
+        title1.set_text(
+            f"$m_\\mathrm{{a}} - m_\\mathrm{{r}}$, $t$ = {actual_time:.1f} years"
+        )
+
+        # ===== PANEL 2: Afterslip Cumulative Release =====
+        spatial_afterslip = afterslip_snapshots[snapshot_idx] * config.element_area_m2  # m³
+        afterslip_grid = spatial_afterslip.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
+        afterslip_grid = scale(afterslip_grid)
+
+        # Redraw contourf
+        ax2.contourf(
+            length_grid,
+            depth_grid,
+            afterslip_grid,
+            cmap="YlOrRd",
+            levels=levels_afterslip,
+            vmin=vmin_afterslip,
+            vmax=vmax_afterslip,
+        )
 
         # Update title
-        title.set_text(
-            f"$m_\\mathrm{{a}} - m_\\mathrm{{r}}$, $t$ = {actual_time:.1f} years"
+        title2.set_text(
+            f"Afterslip cumulative release, $t$ = {actual_time:.1f} years"
         )
 
         # Update progress bar
         pbar.update(1)
 
-        return ax.collections + [title]
+        return ax1.collections + ax2.collections + [title1, title2]
 
     anim = FuncAnimation(fig, update, frames=n_frames, interval=100, blit=False)
 

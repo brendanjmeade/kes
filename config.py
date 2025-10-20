@@ -12,7 +12,7 @@ class Config:
     # === GEOMETRY ===
     fault_length_km = 200.0  # Along-strike length (km)
     fault_depth_km = 25.0  # Down-dip depth (km)
-    element_size_km = 1.0  # Grid cell size (km)
+    element_size_km = 0.5  # Grid cell size (km)
 
     # === MOMENT ACCUMULATION ===
     # Background slip deficit rate
@@ -24,7 +24,7 @@ class Config:
             "center_x_km": 100.0,  # Along-strike position
             "center_z_km": 12.5,  # Down-dip position
             "sigma_km": 20.0,  # Width of Gaussian
-            "amplitude_mm_yr": 30.0,  # Additional slip rate at center
+            "amplitude_mm_yr": 0.0,  # Additional slip rate at center
         }
     ]
 
@@ -35,12 +35,12 @@ class Config:
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
-    M_min = 5.0  # Minimum magnitude
+    M_min = 4.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
     # === ADAPTIVE RATE CORRECTION ===
     adaptive_correction_enabled = (
-        False  # Enable adaptive correction (False = fixed C, natural coupling)
+        True  # Enable adaptive correction (True = drives coupling toward 1.0)
     )
     adaptive_correction_gain = (
         5.0  # Proportional control gain for coupling correction (continuous updates)
@@ -61,6 +61,29 @@ class Config:
         10.0  # Only track aftershocks for this many years after mainshock
     )
 
+    # === AFTERSLIP PARAMETERS ===
+    # MaxEnt afterslip model: aseismic creep following coseismic events
+    # Spatial activation Φ(x,y) also controls aftershock localization
+    afterslip_enabled = True  # Enable/disable afterslip physics
+    afterslip_v_ref_m_yr = (
+        0.01  # Reference initial velocity (m/yr) at M_ref [REDUCED 10x]
+    )
+    afterslip_M_ref = 7.0  # Reference magnitude for velocity scaling
+    afterslip_beta = 0.33  # Magnitude scaling exponent (1/3 from MaxEnt theory)
+    afterslip_correlation_length_x_km = (
+        15.0  # Spatial correlation length ξ_x (along-strike)
+    )
+    afterslip_correlation_length_z_km = 8.0  # Spatial correlation length ξ_z (down-dip)
+    afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
+    afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
+    afterslip_duration_years = 10.0  # Track sequences for this many years
+    afterslip_m_critical = 0.01  # Minimum residual moment for afterslip (m)
+    afterslip_v_min = 1e-6  # Minimum velocity for numerical stability (m/yr)
+    afterslip_M_min = 6.0  # Only trigger afterslip for M ≥ this threshold [RAISED]
+    afterslip_spatial_threshold = (
+        0.3  # Only allow afterslip where Phi > threshold [NEW]
+    )
+
     # === MOMENT INITIALIZATION ===
     spinup_fraction = 0.25  # Initialize with this fraction of mid-cycle moment (0.25 = recurrence_time/4)
 
@@ -72,7 +95,7 @@ class Config:
     b_value = 1.0
 
     # === SIMULATION ===
-    duration_years = 1000.0  # Full simulation duration
+    duration_years = 3000.0  # Full simulation duration
     time_step_days = 1.0  # Time resolution
 
     # Random seed for reproducibility
