@@ -523,8 +523,11 @@ def create_moment_animation(results, config):
     slip_rate = results["slip_rate"]  # m/year per element
     extrema = results["moment_extrema"]
 
-    # Downsample to annual frames (every 365 days)
-    annual_indices = np.arange(0, len(snapshot_times), 365)
+    # Calculate stride to achieve 1 frame per year in animation
+    # Works dynamically with any snapshot_interval_years setting
+    desired_frame_interval_years = 1.0
+    stride = max(1, int(desired_frame_interval_years / config.snapshot_interval_years))
+    annual_indices = np.arange(0, len(snapshot_times), stride)
 
     # Compute symmetric colorbar limits for DEFICIT from extrema (guaranteed centered at zero)
     max_abs_deficit = max(abs(extrema["min_deficit"]), abs(extrema["max_deficit"]))
@@ -536,7 +539,8 @@ def create_moment_animation(results, config):
     max_afterslip_elem = np.max(afterslip_snapshots[-1])  # Maximum at final time (m)
     max_afterslip_scaled = scale(max_afterslip_elem * config.element_area_m2)  # Scale to m³
     vmin_afterslip = 0.0
-    vmax_afterslip = max_afterslip_scaled
+    # Prevent zero range when afterslip is disabled or zero
+    vmax_afterslip = max(max_afterslip_scaled, 1e-10)
 
     # Define contour levels (fixed for all frames)
     n_levels = 20
@@ -605,8 +609,11 @@ def create_moment_animation(results, config):
     ax2.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
     ax2.set_aspect('equal')
     ax2.invert_yaxis()
+
+    # Add title with disabled note if applicable
+    afterslip_status = "" if config.afterslip_enabled else " (DISABLED)"
     title2 = ax2.set_title(
-        "Afterslip cumulative release, $t$ = 0.0 years", fontsize=FONTSIZE
+        f"Afterslip cumulative release{afterslip_status}, $t$ = 0.0 years", fontsize=FONTSIZE
     )
 
     # Add colorbar
@@ -675,7 +682,7 @@ def create_moment_animation(results, config):
 
         # Update title
         title2.set_text(
-            f"Afterslip cumulative release, $t$ = {actual_time:.1f} years"
+            f"Afterslip cumulative release{afterslip_status}, $t$ = {actual_time:.1f} years"
         )
 
         # Update progress bar

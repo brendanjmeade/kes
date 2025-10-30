@@ -338,9 +338,10 @@ def compute_aftershock_spatial_weights(event_history, current_time, config):
             continue
 
         # Get spatial activation for this mainshock
+        # Note: Will be None when afterslip_enabled=False (uniform spatial weighting)
         Phi = event.get('spatial_activation', None)
         if Phi is None:
-            continue  # No spatial info, skip
+            continue  # No spatial info, skip (aftershocks remain spatially uniform)
 
         n_active_sequences += 1
 
