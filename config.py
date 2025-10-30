@@ -53,7 +53,7 @@ class Config:
     # where K scales with mainshock magnitude: K = K_ref × 10^(alpha × (M - M_ref))
     omori_enabled = True  # Enable/disable aftershock sequences
     omori_p = 1.0  # Decay exponent (typically ~1.0)
-    omori_c_days = 1.0  # Time offset in days (will be converted to years)
+    omori_c_years = 1.0 / 365.25  # Time offset in years (~0.00274 years = 1 day)
     omori_K_ref = 0.1  # Productivity (events/year) for M=6 mainshock
     omori_M_ref = 6.0  # Reference magnitude for productivity
     omori_alpha = 0.8  # Magnitude scaling (Reasenberg & Jones 1989)
@@ -96,7 +96,7 @@ class Config:
 
     # === SIMULATION ===
     duration_years = 1000.0  # Full simulation duration
-    time_step_days = 1.0  # Time resolution
+    time_step_years = 1.0  # Time resolution (years)
 
     # Random seed for reproducibility
     random_seed = 42
@@ -107,8 +107,8 @@ class Config:
     hdf5_compression = (
         0  # gzip compression level (0=none for speed, 4=balanced, 9=max compression)
     )
-    snapshot_interval_days = (
-        1.0  # Save moment snapshots every N days (1.0 = every timestep)
+    snapshot_interval_years = (
+        1.0  # Save moment snapshots every N years (1.0 = every timestep)
     )
 
     def compute_derived_parameters(self):
@@ -122,7 +122,7 @@ class Config:
         self.element_area_m2 = (self.element_size_km * 1000) ** 2
 
         # Time steps
-        self.n_time_steps = int(self.duration_years * 365.25 / self.time_step_days)
+        self.n_time_steps = int(self.duration_years / self.time_step_years)
 
         # Convert slip rates to m/year
         self.background_slip_rate_m_yr = self.background_slip_rate_mm_yr / 1000.0

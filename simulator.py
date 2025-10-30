@@ -98,7 +98,7 @@ def run_simulation(config):
 
     # Time array
     times = np.linspace(0, config.duration_years, config.n_time_steps)
-    dt_years = config.time_step_days / 365.25
+    dt_years = config.time_step_years
 
     # Deterministic accumulator for fractional events
     event_debt = 0.0
@@ -129,7 +129,7 @@ def run_simulation(config):
     print("RUNNING SIMULATION")
     print(f"  Duration: {config.duration_years} years")
     print(f"  Time steps: {config.n_time_steps}")
-    print(f"  Time step size: {config.time_step_days} days = {dt_years:.6f} years")
+    print(f"  Time step size: {config.time_step_years} years")
     print("  Event generation: Deterministic accumulator")
     print(f"  Initial moment (spin-up): {initial_moment:.2e} m³")
     print(f"  Cumulative loading accounting: starts at 0.0 m³")
@@ -140,13 +140,13 @@ def run_simulation(config):
     print("=" * 70 + "\n")
 
     # Calculate snapshot interval
-    snapshot_interval = int(config.snapshot_interval_days / config.time_step_days)
+    snapshot_interval = int(config.snapshot_interval_years / config.time_step_years)
     n_expected_snapshots = config.n_time_steps // snapshot_interval
     snapshot_memory_mb = (
         n_expected_snapshots * config.n_elements * 8 / (1024**2)
     )  # 8 bytes per float64
 
-    print(f"  Snapshot interval: {config.snapshot_interval_days} days ({snapshot_interval} timesteps)")
+    print(f"  Snapshot interval: {config.snapshot_interval_years} years ({snapshot_interval} timesteps)")
     print(f"  Expected snapshots: {n_expected_snapshots}")
     print(f"  Estimated snapshot memory: {snapshot_memory_mb:.1f} MB")
 

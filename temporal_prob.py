@@ -152,7 +152,7 @@ def compute_rate_parameters(config):
         print(f"\n  OMORI AFTERSHOCKS ENABLED:")
         print(f"    Law: λ_aftershock = K / (t + c)^p")
         print(f"    p = {config.omori_p:.2f}")
-        print(f"    c = {config.omori_c_days:.2f} days")
+        print(f"    c = {config.omori_c_years:.6f} years")
         print(f"    K_ref = {config.omori_K_ref:.3f} events/yr (at M={config.omori_M_ref:.1f})")
         print(f"    α = {config.omori_alpha:.2f} (magnitude scaling)")
         print(f"    Duration: {config.omori_duration_years:.1f} years per sequence")
@@ -282,8 +282,8 @@ def earthquake_rate(
         and hasattr(config, "omori_enabled")
         and config.omori_enabled
     ):
-        # Convert c from days to years for consistent units
-        omori_c_years = config.omori_c_days / 365.25
+        # Use c directly in years
+        omori_c_years = config.omori_c_years
 
         # Loop only over recent events (performance optimization)
         for event in event_history:

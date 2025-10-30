@@ -264,24 +264,22 @@ def plot_evolution_overview(results, config):
         lambda_values = lambda_values[:]
 
     # Convert λ(t) to incremental expected events per timestep
-    dt_years = config.time_step_days / 365.25
-    lambda_incremental = lambda_values * dt_years  # Expected events per day
+    dt_years = config.time_step_years
+    lambda_incremental = lambda_values * dt_years  # Expected events per timestep
 
-    # Compute 1-year forward-looking rolling sum
-    window_days = 365
-    moving_annual = np.zeros(len(lambda_values))
+    # Compute 10-year forward-looking rolling sum (for smoothing with yearly timesteps)
+    window_timesteps = 10  # 10-year window
+    moving_window = np.zeros(len(lambda_values))
     for i in range(len(lambda_values)):
-        # Sum next 365 days (or remaining days at end)
-        end_idx = min(i + window_days, len(lambda_values))
-        moving_annual[i] = np.sum(lambda_incremental[i:end_idx])
+        # Sum next window_timesteps (or remaining timesteps at end)
+        end_idx = min(i + window_timesteps, len(lambda_values))
+        moving_window[i] = np.sum(lambda_incremental[i:end_idx])
 
-    # Downsample to annual resolution for clearer visualization
-    n_years = int(np.ceil(config.duration_years))
-    annual_indices = np.arange(0, min(n_years * 365, len(moving_annual)), 365)
-    annual_times = lambda_times[annual_indices]
-    annual_expected = moving_annual[annual_indices]
+    # No downsampling needed with yearly timesteps - already at annual resolution
+    annual_times = lambda_times
+    annual_expected = moving_window
 
-    # Plot expected events in next year (downsampled to annual)
+    # Plot expected events in next 10 years (rolling window)
     plt.plot(
         annual_times,
         annual_expected,
@@ -289,7 +287,7 @@ def plot_evolution_overview(results, config):
         linewidth=0.25,
         markersize=2,
         color="k",
-        label="Expected (1-yr window)",
+        label="Expected (10-yr window)",
     )
 
     plt.fill_between(

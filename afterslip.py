@@ -327,8 +327,8 @@ def compute_aftershock_spatial_weights(event_history, current_time, config):
     if not config.omori_enabled:
         return weights, n_active_sequences
 
-    # Omori parameters
-    omori_c_years = config.omori_c_days / 365.25
+    # Omori parameters (use c directly in years)
+    omori_c_years = config.omori_c_years
 
     for event in event_history:
         dt_years = current_time - event['time']
