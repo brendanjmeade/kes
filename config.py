@@ -61,6 +61,17 @@ class Config:
         10.0  # Only track aftershocks for this many years after mainshock
     )
 
+    # === BACKGROUND RATE ===
+    lambda_background = 0.0  # Constant background rate (events/year, default disabled)
+
+    # === RANDOM PERTURBATIONS ===
+    perturbation_type = "none"  # Options: "none", "white_noise", "ornstein_uhlenbeck"
+    perturbation_sigma = (
+        0.01  # White noise: std dev (events/yr); OU: diffusion coefficient
+    )
+    perturbation_mean = 0.0  # OU process only: mean perturbation level (events/yr)
+    perturbation_theta = 1.0  # OU process only: reversion rate (1/years)
+
     # === AFTERSLIP PARAMETERS ===
     # MaxEnt afterslip model: aseismic creep following coseismic events
     # Spatial activation Φ(x,y) also controls aftershock localization
@@ -73,7 +84,9 @@ class Config:
     afterslip_correlation_length_x_km = (
         30.0  # Spatial correlation length ξ_x (along-strike)
     )
-    afterslip_correlation_length_z_km = 15.0  # Spatial correlation length ξ_z (down-dip)
+    afterslip_correlation_length_z_km = (
+        15.0  # Spatial correlation length ξ_z (down-dip)
+    )
     afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
     afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
     afterslip_duration_years = 10.0  # Track sequences for this many years

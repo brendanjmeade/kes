@@ -136,7 +136,7 @@ def compute_rate_parameters(config):
     print(f"\n  Base rate coefficient C (analytical): {C:.3e} (events/yr)/(m³)")
     print(f"  Base rate coefficient C (old method): {C_old:.3e} (events/yr)/(m³)")
     print(f"  Improvement ratio: {C_old/C:.2f}x")
-    print(f"\n  λ(t) = C × correction_factor(t) × moment_deficit(t) + λ_aftershock(t)")
+    print(f"\n  λ(t) = λ_background + C × correction_factor(t) × moment_deficit(t) + λ_aftershock(t) + λ_perturbation(t)")
 
     # Print adaptive correction status
     if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
@@ -160,6 +160,23 @@ def compute_rate_parameters(config):
         print(f"    Example: M7.0 → K = {K_M7:.3f} events/yr")
     else:
         print(f"\n  OMORI AFTERSHOCKS DISABLED")
+
+    # Print background rate if enabled
+    if hasattr(config, "lambda_background") and config.lambda_background > 0:
+        print(f"\n  BACKGROUND RATE ENABLED:")
+        print(f"    λ_background = {config.lambda_background:.4f} events/yr")
+
+    # Print perturbation parameters if enabled
+    if hasattr(config, "perturbation_type") and config.perturbation_type != "none":
+        print(f"\n  RANDOM PERTURBATIONS ENABLED:")
+        print(f"    Type: {config.perturbation_type}")
+        if config.perturbation_type == "white_noise":
+            print(f"    σ = {config.perturbation_sigma:.4f} events/yr")
+        elif config.perturbation_type == "ornstein_uhlenbeck":
+            print(f"    Mean: {config.perturbation_mean:.4f} events/yr")
+            print(f"    σ (diffusion): {config.perturbation_sigma:.4f}")
+            print(f"    θ (reversion): {config.perturbation_theta:.2f} /yr")
+
     print("=" * 70)
 
     return C
@@ -273,6 +290,9 @@ def earthquake_rate(
     # Base rate proportional to moment deficit, with adaptive correction
     lambda_loading = config.C_rate_base * config.rate_correction_factor * moment_deficit
 
+    # Steady background rate (external forcing independent of moment deficit)
+    lambda_background = getattr(config, 'lambda_background', 0.0)
+
     # Aftershock rate (Omori-Utsu decay)
     lambda_aftershock = 0.0
     n_active_sequences = 0
@@ -303,14 +323,26 @@ def earthquake_rate(
                 # Add this mainshock's aftershock contribution
                 lambda_aftershock += K / (dt_years + omori_c_years) ** config.omori_p
 
-    # Total rate
-    lambda_t = lambda_loading + lambda_aftershock
+    # Random perturbations (stochastic external forcing)
+    lambda_perturbation = 0.0
+    perturbation_type = getattr(config, 'perturbation_type', 'none')
+    if perturbation_type == "white_noise":
+        # Uncorrelated additive noise (each timestep independent)
+        lambda_perturbation = np.abs(np.random.normal(0, config.perturbation_sigma))
+    elif perturbation_type == "ornstein_uhlenbeck":
+        # Time-correlated process (state updated in simulator.py)
+        lambda_perturbation = max(0.0, config.perturbation_mean + config.perturbation_state)
+
+    # Total rate (all components)
+    lambda_t = lambda_background + lambda_loading + lambda_aftershock + lambda_perturbation
     lambda_t = max(0.0, lambda_t)
 
     # Components for diagnostics
     components = {
+        "background": lambda_background,
         "loading": lambda_loading,
         "aftershock": lambda_aftershock,
+        "perturbation": lambda_perturbation,
         "n_active_sequences": n_active_sequences,
         "moment_deficit": moment_deficit,
         "correction_factor": config.rate_correction_factor,

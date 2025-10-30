@@ -67,6 +67,10 @@ def run_simulation(config):
     # Set random seed
     np.random.seed(config.random_seed)
 
+    # Initialize Ornstein-Uhlenbeck perturbation state if needed
+    if hasattr(config, 'perturbation_type') and config.perturbation_type == "ornstein_uhlenbeck":
+        config.perturbation_state = 0.0
+
     # Compute derived parameters
     config.compute_derived_parameters()
 
@@ -183,6 +187,12 @@ def run_simulation(config):
         # Update cumulative loading
         moment_added = np.sum(slip_rate * config.element_area_m2) * dt_years
         cumulative_loading += moment_added
+
+        # Update Ornstein-Uhlenbeck perturbation process (before computing rate)
+        # dX = -θ X dt + σ sqrt(dt) dW
+        if hasattr(config, 'perturbation_type') and config.perturbation_type == "ornstein_uhlenbeck":
+            config.perturbation_state -= config.perturbation_theta * config.perturbation_state * dt_years
+            config.perturbation_state += config.perturbation_sigma * np.sqrt(dt_years) * np.random.randn()
 
         # Compute instantaneous rate based on moment deficit
         # NOTE: Correction update moved to END of loop (after events)
