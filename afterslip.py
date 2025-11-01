@@ -144,14 +144,15 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
     # No spatial threshold - let natural Phi × m_residual product determine extent
     v_initial[v_initial < config.afterslip_v_min] = 0.0
 
-    # Decay rates: decay_rate = v₀ × A / m_residual₀
-    # This ensures afterslip stops when moment is depleted
+    # Decay rates: decay_rate = v₀ / m_residual₀
+    # This ensures self-limiting condition: ∫v(t)dt = m_residual₀
+    # v(t) = v₀ exp(-decay_rate × t) → ∫₀^∞ v dt = v₀/decay_rate = m_residual₀
     decay_rates = np.zeros_like(v_initial)
     active_mask = (m_residual_initial > 0) & (v_initial > 0)
 
     if active_mask.any():
         decay_rates[active_mask] = (
-            v_initial[active_mask] * config.element_area_m2 / m_residual_initial[active_mask]
+            v_initial[active_mask] / m_residual_initial[active_mask]
         )
 
     # Compute total moment budget for this sequence

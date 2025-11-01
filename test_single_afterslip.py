@@ -63,9 +63,18 @@ event = {
     'time': 0.0,
 }
 
-# m_current is not actually used in the new implementation,
-# but we need to pass something
-m_current = np.zeros(config.n_elements)
+# m_current represents residual moment after coseismic release
+# CRITICAL: Drives spatial pattern of afterslip
+# Simulate mid-cycle loading (e.g., 50 years at 10 mm/yr)
+years_accumulated = 50.0
+loading_rate_m_yr = 0.01  # 10 mm/yr
+m_accumulated = np.ones(config.n_elements) * loading_rate_m_yr * years_accumulated
+m_current = np.maximum(m_accumulated - slip_coseismic, 0.0)
+
+print(f"\nResidual moment field:")
+print(f"  m_current inside rupture (r < {eq_radius_km/2:.0f} km): {m_current[dist_from_eq < eq_radius_km/2].mean():.3f} m")
+print(f"  m_current at rupture edge (r ≈ {eq_radius_km} km): {m_current[np.abs(dist_from_eq - eq_radius_km) < 2].mean():.3f} m")
+print(f"  m_current in halo (r > {eq_radius_km+5:.0f} km): {m_current[dist_from_eq > eq_radius_km + 5].mean():.3f} m")
 
 # =============================================================================
 # INITIALIZE AFTERSLIP SEQUENCE
