@@ -248,23 +248,26 @@ length_vec = np.linspace(0, config.fault_length_km, nx)
 depth_vec = np.linspace(0, config.fault_depth_km, ny)
 length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
 
+# Compute global color limits across all snapshots
+all_v_fields = [history['snapshots'][t]['v_current'] for t in times_to_plot]
+global_vmin = min(v.min() for v in all_v_fields)
+global_vmax = max(v.max() for v in all_v_fields)
+if global_vmax - global_vmin < 1e-10:  # Handle case where all values are the same
+    global_vmin, global_vmax = global_vmin - 0.001, global_vmax + 0.001
+global_levels = np.linspace(global_vmin, global_vmax, 11)
+
 for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
     v_field = history['snapshots'][t]['v_current'].reshape(nx, ny).T
 
-    # Determine contour levels based on data range
-    vmin, vmax = v_field.min(), v_field.max()
-    if vmax - vmin < 1e-10:  # Handle case where all values are the same
-        vmin, vmax = vmin - 0.001, vmax + 0.001
-    levels = np.linspace(vmin, vmax, 11)
-
-    # Filled contours
-    cbar_plot = ax.contourf(length_grid, depth_grid, v_field, cmap='YlOrRd', levels=levels, extend='both')
+    # Filled contours with global levels
+    cbar_plot = ax.contourf(length_grid, depth_grid, v_field, cmap='YlOrRd', levels=global_levels, extend='both')
     # Contour lines overlay
-    ax.contour(length_grid, depth_grid, v_field, colors='black', linewidths=0.5, linestyles='solid', levels=levels)
+    ax.contour(length_grid, depth_grid, v_field, colors='black', linewidths=0.5, linestyles='solid', levels=global_levels)
 
     ax.set_title(f't = {t} years', fontsize=14, fontweight='bold')
     ax.set_xlabel('$x$ (km)', fontsize=12)
     ax.set_ylabel('$d$ (km)', fontsize=12)
+    ax.set_aspect('equal')
     ax.invert_yaxis()
 
     # Add rupture boundary
@@ -288,23 +291,26 @@ plt.close()
 print("Creating Figure 3: Cumulative slip evolution...")
 fig, axes = plt.subplots(6, 1, figsize=(15, 18))
 
+# Compute global color limits across all snapshots
+all_cum_slip = [history['snapshots'][t]['cumulative_slip'] for t in times_to_plot]
+global_vmin = min(c.min() for c in all_cum_slip)
+global_vmax = max(c.max() for c in all_cum_slip)
+if global_vmax - global_vmin < 1e-10:  # Handle case where all values are the same
+    global_vmin, global_vmax = global_vmin - 0.01, global_vmax + 0.01
+global_levels = np.linspace(global_vmin, global_vmax, 11)
+
 for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
     cum_slip = history['snapshots'][t]['cumulative_slip'].reshape(nx, ny).T
 
-    # Determine contour levels based on data range
-    vmin, vmax = cum_slip.min(), cum_slip.max()
-    if vmax - vmin < 1e-10:  # Handle case where all values are the same
-        vmin, vmax = vmin - 0.01, vmax + 0.01
-    levels = np.linspace(vmin, vmax, 11)
-
-    # Filled contours
-    cbar_plot = ax.contourf(length_grid, depth_grid, cum_slip, cmap='viridis', levels=levels, extend='both')
+    # Filled contours with global levels
+    cbar_plot = ax.contourf(length_grid, depth_grid, cum_slip, cmap='viridis', levels=global_levels, extend='both')
     # Contour lines overlay
-    ax.contour(length_grid, depth_grid, cum_slip, colors='black', linewidths=0.5, linestyles='solid', levels=levels)
+    ax.contour(length_grid, depth_grid, cum_slip, colors='black', linewidths=0.5, linestyles='solid', levels=global_levels)
 
     ax.set_title(f't = {t} years', fontsize=14, fontweight='bold')
     ax.set_xlabel('$x$ (km)', fontsize=12)
     ax.set_ylabel('$d$ (km)', fontsize=12)
+    ax.set_aspect('equal')
     ax.invert_yaxis()
 
     # Add rupture boundary
