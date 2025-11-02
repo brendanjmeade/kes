@@ -237,27 +237,47 @@ plt.close()
 # =============================================================================
 
 print("Creating Figure 2: Spatial velocity evolution...")
-fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+fig, axes = plt.subplots(6, 1, figsize=(15, 18))
 times_to_plot = [0, 0.1, 1.0, 3.0, 5.0, 10.0]
 
 nx = config.n_along_strike
 ny = config.n_down_dip
-extent = [0, config.fault_length_km, 0, config.fault_depth_km]
 
-for idx, (ax, t) in enumerate(zip(axes.flat, times_to_plot)):
+# Create coordinate grids for contourf
+length_vec = np.linspace(0, config.fault_length_km, nx)
+depth_vec = np.linspace(0, config.fault_depth_km, ny)
+length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
+
+for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
     v_field = history['snapshots'][t]['v_current'].reshape(nx, ny).T
-    im = ax.imshow(v_field, aspect='equal', origin='lower', extent=extent, cmap='YlOrRd')
+
+    # Determine contour levels based on data range
+    vmin, vmax = v_field.min(), v_field.max()
+    if vmax - vmin < 1e-10:  # Handle case where all values are the same
+        vmin, vmax = vmin - 0.001, vmax + 0.001
+    levels = np.linspace(vmin, vmax, 11)
+
+    # Filled contours
+    cbar_plot = ax.contourf(length_grid, depth_grid, v_field, cmap='YlOrRd', levels=levels, extend='both')
+    # Contour lines overlay
+    ax.contour(length_grid, depth_grid, v_field, colors='black', linewidths=0.5, linestyles='solid', levels=levels)
+
     ax.set_title(f't = {t} years', fontsize=14, fontweight='bold')
-    ax.set_xlabel('Along-strike (km)')
-    ax.set_ylabel('Down-dip (km)')
+    ax.set_xlabel('$x$ (km)', fontsize=12)
+    ax.set_ylabel('$d$ (km)', fontsize=12)
+    ax.invert_yaxis()
+
     # Add rupture boundary
     circle = plt.Circle((eq_center_x_km, eq_center_z_km), eq_radius_km,
                         fill=False, edgecolor='blue', linewidth=2, linestyle='--')
     ax.add_patch(circle)
-    plt.colorbar(im, ax=ax, label='Velocity (m/yr)')
+
+    # Colorbar
+    cbar = plt.colorbar(cbar_plot, ax=ax)
+    cbar.set_label('Velocity (m/yr)', fontsize=11)
 
 plt.tight_layout()
-plt.savefig('results/test_afterslip_velocity_evolution.png', dpi=150, bbox_inches='tight')
+plt.savefig('results/test_afterslip_velocity_evolution.png', dpi=300, bbox_inches='tight')
 print("  Saved: results/test_afterslip_velocity_evolution.png")
 plt.close()
 
@@ -266,22 +286,38 @@ plt.close()
 # =============================================================================
 
 print("Creating Figure 3: Cumulative slip evolution...")
-fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+fig, axes = plt.subplots(6, 1, figsize=(15, 18))
 
-for idx, (ax, t) in enumerate(zip(axes.flat, times_to_plot)):
+for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
     cum_slip = history['snapshots'][t]['cumulative_slip'].reshape(nx, ny).T
-    im = ax.imshow(cum_slip, aspect='equal', origin='lower', extent=extent, cmap='viridis')
+
+    # Determine contour levels based on data range
+    vmin, vmax = cum_slip.min(), cum_slip.max()
+    if vmax - vmin < 1e-10:  # Handle case where all values are the same
+        vmin, vmax = vmin - 0.01, vmax + 0.01
+    levels = np.linspace(vmin, vmax, 11)
+
+    # Filled contours
+    cbar_plot = ax.contourf(length_grid, depth_grid, cum_slip, cmap='viridis', levels=levels, extend='both')
+    # Contour lines overlay
+    ax.contour(length_grid, depth_grid, cum_slip, colors='black', linewidths=0.5, linestyles='solid', levels=levels)
+
     ax.set_title(f't = {t} years', fontsize=14, fontweight='bold')
-    ax.set_xlabel('Along-strike (km)')
-    ax.set_ylabel('Down-dip (km)')
+    ax.set_xlabel('$x$ (km)', fontsize=12)
+    ax.set_ylabel('$d$ (km)', fontsize=12)
+    ax.invert_yaxis()
+
     # Add rupture boundary
     circle = plt.Circle((eq_center_x_km, eq_center_z_km), eq_radius_km,
                         fill=False, edgecolor='red', linewidth=2, linestyle='--')
     ax.add_patch(circle)
-    plt.colorbar(im, ax=ax, label='Cumulative Slip (m)')
+
+    # Colorbar
+    cbar = plt.colorbar(cbar_plot, ax=ax)
+    cbar.set_label('Cumulative Slip (m)', fontsize=11)
 
 plt.tight_layout()
-plt.savefig('results/test_afterslip_cumulative_evolution.png', dpi=150, bbox_inches='tight')
+plt.savefig('results/test_afterslip_cumulative_evolution.png', dpi=300, bbox_inches='tight')
 print("  Saved: results/test_afterslip_cumulative_evolution.png")
 plt.close()
 
