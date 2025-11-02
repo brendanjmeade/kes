@@ -248,21 +248,24 @@ length_vec = np.linspace(0, config.fault_length_km, nx)
 depth_vec = np.linspace(0, config.fault_depth_km, ny)
 length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
 
-# Compute global color limits across all snapshots
+# Compute global color limits across all snapshots (log10 scale)
+epsilon = 1e-10  # Small value to avoid log(0)
 all_v_fields = [history['snapshots'][t]['v_current'] for t in times_to_plot]
-global_vmin = min(v.min() for v in all_v_fields)
-global_vmax = max(v.max() for v in all_v_fields)
-if global_vmax - global_vmin < 1e-10:  # Handle case where all values are the same
-    global_vmin, global_vmax = global_vmin - 0.001, global_vmax + 0.001
-global_levels = np.linspace(global_vmin, global_vmax, 11)
+all_v_log = [np.log10(v + epsilon) for v in all_v_fields]
+global_vmin_log = min(v.min() for v in all_v_log)
+global_vmax_log = max(v.max() for v in all_v_log)
+if global_vmax_log - global_vmin_log < 1e-10:  # Handle case where all values are the same
+    global_vmin_log, global_vmax_log = global_vmin_log - 0.1, global_vmax_log + 0.1
+global_levels_log = np.linspace(global_vmin_log, global_vmax_log, 11)
 
 for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
     v_field = history['snapshots'][t]['v_current'].reshape(nx, ny).T
+    v_field_log = np.log10(v_field + epsilon)
 
-    # Filled contours with global levels
-    cbar_plot = ax.contourf(length_grid, depth_grid, v_field, cmap='YlOrRd', levels=global_levels, extend='both')
+    # Filled contours with global levels (log scale)
+    cbar_plot = ax.contourf(length_grid, depth_grid, v_field_log, cmap='YlOrRd', levels=global_levels_log, extend='both')
     # Contour lines overlay
-    ax.contour(length_grid, depth_grid, v_field, colors='black', linewidths=0.5, linestyles='solid', levels=global_levels)
+    ax.contour(length_grid, depth_grid, v_field_log, colors='black', linewidths=0.5, linestyles='solid', levels=global_levels_log)
 
     ax.set_title(f't = {t} years', fontsize=14, fontweight='bold')
     ax.set_xlabel('$x$ (km)', fontsize=12)
@@ -275,9 +278,9 @@ for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
                         fill=False, edgecolor='blue', linewidth=2, linestyle='--')
     ax.add_patch(circle)
 
-    # Colorbar
-    cbar = plt.colorbar(cbar_plot, ax=ax)
-    cbar.set_label('Velocity (m/yr)', fontsize=11)
+    # Colorbar (matched height to subplot)
+    cbar = plt.colorbar(cbar_plot, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('log$_{10}$ Velocity (m/yr)', fontsize=11)
 
 plt.tight_layout()
 plt.savefig('results/test_afterslip_velocity_evolution.png', dpi=300, bbox_inches='tight')
@@ -318,8 +321,8 @@ for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
                         fill=False, edgecolor='red', linewidth=2, linestyle='--')
     ax.add_patch(circle)
 
-    # Colorbar
-    cbar = plt.colorbar(cbar_plot, ax=ax)
+    # Colorbar (matched height to subplot)
+    cbar = plt.colorbar(cbar_plot, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label('Cumulative Slip (m)', fontsize=11)
 
 plt.tight_layout()
