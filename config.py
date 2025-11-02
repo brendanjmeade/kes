@@ -13,6 +13,7 @@ class Config:
     fault_length_km = 200.0  # Along-strike length (km)
     fault_depth_km = 25.0  # Down-dip depth (km)
     element_size_km = 1.0  # Grid cell size (km)
+    # element_size_km = 0.1  # Grid cell size (km)
 
     # === MOMENT ACCUMULATION ===
     # Background slip deficit rate

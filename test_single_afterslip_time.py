@@ -33,8 +33,8 @@ mesh = create_fault_mesh(config)
 
 # Define circular coseismic rupture (mimic max_ent_afterslip.py)
 eq_center_x_km = config.fault_length_km / 2  # 100 km
-eq_center_z_km = config.fault_depth_km / 2  # 12.5 km
-eq_radius_km = 20.0  # 20 km radius
+eq_center_z_km = config.fault_depth_km / 2 - 10.0
+eq_radius_km = 15.0  # 20 km radius
 eq_slip_m = 1.0  # 1 meter slip
 
 # Calculate distance from earthquake center for each element
@@ -74,6 +74,8 @@ event = {
 # Simulate mid-cycle loading (e.g., 50 years at 10 mm/yr)
 years_accumulated = 50.0
 loading_rate_m_yr = 0.01  # 10 mm/yr
+loading_rate_m_yr = 0.03  # 30 mm/yr
+
 m_accumulated = np.ones(config.n_elements) * loading_rate_m_yr * years_accumulated
 m_current = np.maximum(m_accumulated - slip_coseismic, 0.0)
 
@@ -282,7 +284,7 @@ if (
 ):  # Handle case where all values are the same
     global_vmin_log, global_vmax_log = global_vmin_log - 0.1, global_vmax_log + 0.1
 global_levels_log = np.linspace(global_vmin_log, global_vmax_log, 51)
-global_levels_log = np.linspace(-3, -0.5, 10)
+global_levels_log = np.linspace(-2, -0.5, 5)
 
 
 for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
@@ -329,7 +331,7 @@ for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
 
     # Colorbar (matched height to subplot)
     cbar = plt.colorbar(cbar_plot, ax=ax, fraction=0.005, pad=0.03)
-    cbar.set_label("log$_{10} \; v$ (m/yr)", fontsize=12)
+    cbar.set_label("log$_{10} \\; v$ (m/yr)", fontsize=12)
 
 plt.tight_layout()
 plt.savefig(
