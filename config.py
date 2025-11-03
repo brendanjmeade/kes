@@ -81,11 +81,9 @@ class Config:
     afterslip_M_ref = 7.0  # Reference magnitude for velocity scaling
     afterslip_beta = 0.33  # Magnitude scaling exponent (1/3 from MaxEnt theory)
     afterslip_correlation_length_x_km = (
-        30.0  # Spatial correlation length ξ_x (along-strike)
+        7.5  # Spatial correlation length ξ_x (along-strike)
     )
-    afterslip_correlation_length_z_km = (
-        15.0  # Spatial correlation length ξ_z (down-dip)
-    )
+    afterslip_correlation_length_z_km = 7.5  # Spatial correlation length ξ_z (down-dip)
     afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
     afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
     afterslip_duration_years = 10.0  # Track sequences for this many years
