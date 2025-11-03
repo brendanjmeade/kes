@@ -10,6 +10,24 @@ This is a strike-slip fault earthquake simulator built on statistical mechanics 
 - **Afterslip physics**: MaxEnt-based aseismic creep following large events
 - **Omori aftershocks**: Spatially-localized aftershock sequences triggered by mainshocks
 
+## File Structure
+
+Core Python modules:
+- `config.py` - All simulation parameters (centralized configuration)
+- `simulator.py` - Main time-stepping loop and simulation orchestration
+- `temporal_prob.py` - Event rate calculation with adaptive correction
+- `spatial_prob.py` - Hypocenter selection using MaxEnt spatial distribution
+- `slip_generator.py` - Heterogeneous slip distribution generation
+- `moment.py` - Moment accumulation/release and magnitude conversions
+- `afterslip.py` - MaxEnt afterslip sequences following large events
+- `geometry.py` - Fault mesh creation and coordinate systems
+- `hdf5_io.py` - Buffered I/O and lazy loading for memory efficiency
+- `visualize.py` - All plotting functions for diagnostic visualization
+- `run_simulation.py` - Main entry point (runs simulation)
+- `plot_results.py` - Standalone visualization (reads HDF5 results)
+- `test_single_afterslip.py` - Test spatial pattern of single afterslip sequence
+- `test_single_afterslip_time.py` - Test temporal evolution of afterslip
+
 ## Running the Simulation
 
 **Basic workflow** (separate simulation from visualization):
@@ -134,7 +152,7 @@ All parameters in `config.py:Config` class:
    - Snapshots written to HDF5 with buffered I/O (`BufferedHDF5Writer`, default 5000 snapshots)
    - Visualization uses lazy loading (`load_lazy_results`) to avoid loading full arrays into memory
    - Compression can be adjusted: `hdf5_compression = 0` (fastest) to `9` (smallest files)
-   - Snapshot interval configurable via `snapshot_interval_days`
+   - Snapshot interval configurable via `snapshot_interval_years`
 
 5. **Afterslip-Aftershock Coupling**:
    - Both use same spatial activation kernel `Φ` from `calculate_spatial_activation_kernel`
@@ -156,6 +174,23 @@ All parameters in `config.py:Config` class:
 ## Testing and Development
 
 - **Quick test runs**: Set `duration_years = 10.0` and `M_min = 6.0` for faster iteration
-- **Test single afterslip sequence**: Use `test_single_afterslip.py` to visualize afterslip evolution for a single event
+- **Test afterslip physics**:
+  - `test_single_afterslip.py` - Validates spatial activation pattern for single event (peak at inner halo edge)
+  - `test_single_afterslip_time.py` - Tests temporal evolution and decay of afterslip velocity
 - **Parameter studies**: Run with different configs, save to different output files, then compare using `plot_results.py`
-- **Inspect HDF5 files**: Use `h5py` or HDF5 viewers to examine raw simulation data without loading into memory
+  ```bash
+  # Example: Compare different b-values
+  # Edit config.py, set b_value = 1.0
+  python run_simulation.py
+  mv results/simulation_results.h5 results/b1.0.h5
+
+  # Edit config.py, set b_value = 1.2
+  python run_simulation.py
+  mv results/simulation_results.h5 results/b1.2.h5
+
+  # Compare visualizations
+  python plot_results.py results/b1.0.h5
+  python plot_results.py results/b1.2.h5
+  ```
+- **Inspect HDF5 files**: Use `h5py` or HDF5 viewers (HDFView, h5ls) to examine raw simulation data without loading into memory
+- **Performance profiling**: Use `time python run_simulation.py` to benchmark. Adjust `snapshot_interval_years`, `hdf5_compression`, or `element_size_km` for faster runs
