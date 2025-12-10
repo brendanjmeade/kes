@@ -43,18 +43,20 @@ def calculate_spatial_activation_kernel(mesh, ruptured_elements, magnitude, conf
         return Phi
 
     # Get positions of ruptured elements
-    ruptured_positions = mesh['centroids'][ruptured_elements]
-    all_positions = mesh['centroids']
+    ruptured_positions = mesh["centroids"][ruptured_elements]
+    all_positions = mesh["centroids"]
 
     # Magnitude-dependent correlation lengths (anisotropic)
     # ξ_x = ξ₀_x × (M / M_ref)^β (along-strike)
     # ξ_z = ξ₀_z × (M / M_ref)^β (down-dip)
-    xi_x = config.afterslip_correlation_length_x_km * (
-        magnitude / config.afterslip_M_ref
-    ) ** config.afterslip_beta
-    xi_z = config.afterslip_correlation_length_z_km * (
-        magnitude / config.afterslip_M_ref
-    ) ** config.afterslip_beta
+    xi_x = (
+        config.afterslip_correlation_length_x_km
+        * (magnitude / config.afterslip_M_ref) ** config.afterslip_beta
+    )
+    xi_z = (
+        config.afterslip_correlation_length_z_km
+        * (magnitude / config.afterslip_M_ref) ** config.afterslip_beta
+    )
 
     # For each element, compute minimum anisotropic distance to rupture zone
     for i in range(n_elements):
@@ -63,7 +65,7 @@ def calculate_spatial_activation_kernel(mesh, ruptured_elements, magnitude, conf
         dz = all_positions[i, 2] - ruptured_positions[:, 2]  # Down-dip (z)
 
         # Anisotropic distance: d_scaled = sqrt((dx/ξ_x)² + (dz/ξ_z)²)
-        distances_scaled = np.sqrt((dx / xi_x)**2 + (dz / xi_z)**2)
+        distances_scaled = np.sqrt((dx / xi_x) ** 2 + (dz / xi_z) ** 2)
         min_dist_scaled = np.min(distances_scaled)
 
         # Apply spatial kernel
@@ -111,10 +113,10 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
     sequence : dict
         Afterslip sequence with all parameters needed for time evolution
     """
-    magnitude = event['magnitude']
-    time = event['time']
-    ruptured_elements = event['ruptured_elements']
-    slip_coseismic = event['slip']
+    magnitude = event["magnitude"]
+    time = event["time"]
+    ruptured_elements = event["ruptured_elements"]
+    slip_coseismic = event["slip"]
 
     # Residual moment = actual moment field after earthquake
     # m_current was passed in AFTER coseismic slip was removed
@@ -127,13 +129,16 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
     m_residual_initial[m_residual_initial < config.afterslip_m_critical] = 0.0
 
     # Calculate spatial activation kernel
-    Phi = calculate_spatial_activation_kernel(mesh, ruptured_elements, magnitude, config)
+    Phi = calculate_spatial_activation_kernel(
+        mesh, ruptured_elements, magnitude, config
+    )
 
     # Magnitude scaling for initial velocity
     # v_mag = v_ref × (M / M_ref)^β
-    v_mag_scale = config.afterslip_v_ref_m_yr * (
-        magnitude / config.afterslip_M_ref
-    ) ** config.afterslip_beta
+    v_mag_scale = (
+        config.afterslip_v_ref_m_yr
+        * (magnitude / config.afterslip_M_ref) ** config.afterslip_beta
+    )
 
     # Initial velocity field (MaxEnt form: v ∝ Φ × m_residual)
     # This creates peak afterslip in halo region (high m_residual, medium Phi)
@@ -161,18 +166,18 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
 
     # Create sequence record
     sequence = {
-        'mainshock_time': time,
-        'magnitude': magnitude,
-        'ruptured_elements': ruptured_elements,
-        'Phi': Phi,  # Spatial activation (used for aftershock localization too)
-        'v_initial': v_initial,  # Initial velocity field (m/yr per element)
-        'm_residual_initial': m_residual_initial,  # Initial residual moment (m per element)
-        'm_residual_current': m_residual_initial.copy(),  # Evolving residual moment
-        'decay_rates': decay_rates,  # Decay rate per element (1/yr)
-        'cumulative_afterslip': np.zeros(config.n_elements),  # Track total afterslip
-        'moment_budget': moment_budget_total,  # Maximum moment this sequence can release (m³)
-        'moment_released': 0.0,  # Track cumulative release (m³)
-        'active': True,
+        "mainshock_time": time,
+        "magnitude": magnitude,
+        "ruptured_elements": ruptured_elements,
+        "Phi": Phi,  # Spatial activation (used for aftershock localization too)
+        "v_initial": v_initial,  # Initial velocity field (m/yr per element)
+        "m_residual_initial": m_residual_initial,  # Initial residual moment (m per element)
+        "m_residual_current": m_residual_initial.copy(),  # Evolving residual moment
+        "decay_rates": decay_rates,  # Decay rate per element (1/yr)
+        "cumulative_afterslip": np.zeros(config.n_elements),  # Track total afterslip
+        "moment_budget": moment_budget_total,  # Maximum moment this sequence can release (m³)
+        "moment_released": 0.0,  # Track cumulative release (m³)
+        "active": True,
     }
 
     return sequence
@@ -207,28 +212,30 @@ def update_afterslip_sequences(sequences, current_time, dt_years, config):
     total_release = np.zeros(config.n_elements)
 
     for seq in sequences:
-        if not seq['active']:
+        if not seq["active"]:
             continue
 
         # Time since mainshock
-        dt_since_mainshock = current_time - seq['mainshock_time']
+        dt_since_mainshock = current_time - seq["mainshock_time"]
 
         # Check if sequence has expired
         if dt_since_mainshock > config.afterslip_duration_years:
-            seq['active'] = False
+            seq["active"] = False
             continue
 
         # Get current velocity using exponential decay
         # v(t) = v₀ × exp(-decay_rate × t)
-        v_initial = seq['v_initial']
-        decay_rates = seq['decay_rates']
+        v_initial = seq["v_initial"]
+        decay_rates = seq["decay_rates"]
         v_current = v_initial * np.exp(-decay_rates * dt_since_mainshock)
 
         # Patches with active afterslip
-        active_mask = (seq['m_residual_current'] > 0) & (v_current > config.afterslip_v_min)
+        active_mask = (seq["m_residual_current"] > 0) & (
+            v_current > config.afterslip_v_min
+        )
 
         if not active_mask.any():
-            seq['active'] = False
+            seq["active"] = False
             continue
 
         # Compute slip increment for this timestep
@@ -237,36 +244,36 @@ def update_afterslip_sequences(sequences, current_time, dt_years, config):
         dm[active_mask] = v_current[active_mask] * dt_years
 
         # Don't exceed available residual moment
-        dm = np.minimum(dm, seq['m_residual_current'])
+        dm = np.minimum(dm, seq["m_residual_current"])
 
         # Compute geometric moment for this release
         dm_moment = np.sum(dm) * config.element_area_m2
 
         # Check against sequence budget
-        if seq['moment_released'] + dm_moment > seq['moment_budget']:
+        if seq["moment_released"] + dm_moment > seq["moment_budget"]:
             # Scale back to not exceed budget
-            scale_factor = (seq['moment_budget'] - seq['moment_released']) / dm_moment
+            scale_factor = (seq["moment_budget"] - seq["moment_released"]) / dm_moment
             scale_factor = max(0.0, min(1.0, scale_factor))
             dm *= scale_factor
             dm_moment = np.sum(dm) * config.element_area_m2
 
         # Update residual moment
-        seq['m_residual_current'] -= dm
+        seq["m_residual_current"] -= dm
 
         # Track cumulative afterslip for this sequence
-        seq['cumulative_afterslip'] += dm
-        seq['moment_released'] += dm_moment
+        seq["cumulative_afterslip"] += dm
+        seq["moment_released"] += dm_moment
 
         # Add to total release
         total_release += dm
 
         # Check for depleted patches or budget exhausted
-        depleted_mask = seq['m_residual_current'] < config.afterslip_m_critical
-        seq['m_residual_current'][depleted_mask] = 0.0
+        depleted_mask = seq["m_residual_current"] < config.afterslip_m_critical
+        seq["m_residual_current"][depleted_mask] = 0.0
 
         # Deactivate if budget exhausted
-        if seq['moment_released'] >= seq['moment_budget'] * 0.999:
-            seq['active'] = False
+        if seq["moment_released"] >= seq["moment_budget"] * 0.999:
+            seq["active"] = False
 
     return total_release
 
@@ -292,8 +299,8 @@ def get_active_afterslip_sequences(sequences, current_time, duration_cutoff):
     active_sequences = []
 
     for seq in sequences:
-        dt = current_time - seq['mainshock_time']
-        if seq['active'] and 0 < dt <= duration_cutoff:
+        dt = current_time - seq["mainshock_time"]
+        if seq["active"] and 0 < dt <= duration_cutoff:
             active_sequences.append(seq)
 
     return active_sequences
@@ -332,7 +339,7 @@ def compute_aftershock_spatial_weights(event_history, current_time, config):
     omori_c_years = config.omori_c_years
 
     for event in event_history:
-        dt_years = current_time - event['time']
+        dt_years = current_time - event["time"]
 
         # Only consider events within aftershock duration window
         if not (0 < dt_years <= config.omori_duration_years):
@@ -340,14 +347,14 @@ def compute_aftershock_spatial_weights(event_history, current_time, config):
 
         # Get spatial activation for this mainshock
         # Note: Will be None when afterslip_enabled=False (uniform spatial weighting)
-        Phi = event.get('spatial_activation', None)
+        Phi = event.get("spatial_activation", None)
         if Phi is None:
             continue  # No spatial info, skip (aftershocks remain spatially uniform)
 
         n_active_sequences += 1
 
         # Omori temporal weight: K / (t + c)^p
-        M_mainshock = event['magnitude']
+        M_mainshock = event["magnitude"]
         K = config.omori_K_ref * 10 ** (
             config.omori_alpha * (M_mainshock - config.omori_M_ref)
         )
