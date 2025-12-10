@@ -56,7 +56,7 @@ area_co_m2 = len(ruptured_elements) * config.element_area_m2
 M0_Nm = eq_slip_m * area_co_m2 * config.shear_modulus_Pa
 magnitude = (2 / 3) * np.log10(M0_Nm) - 6.07
 
-print(f"Test earthquake:")
+print("Test earthquake:")
 print(f"  Magnitude: M {magnitude:.2f}")
 print(f"  Rupture area: {area_co_m2 / 1e6:.1f} km²")
 print(f"  Number of ruptured elements: {len(ruptured_elements)}")
@@ -82,7 +82,7 @@ loading_rate_m_yr = 0.01  # 10 mm/yr
 m_accumulated = np.ones(config.n_elements) * loading_rate_m_yr * years_accumulated
 m_current = np.maximum(m_accumulated - slip_coseismic, 0.0)
 
-print(f"\nResidual moment field:")
+print("\nResidual moment field:")
 print(
     f"  m_current inside rupture (r < {eq_radius_km / 2:.0f} km): {m_current[dist_from_eq < eq_radius_km / 2].mean():.3f} m"
 )
