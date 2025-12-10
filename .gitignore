@@ -28,3 +28,4 @@ Untitled*.ipynb
 *.parquet
 local*.ipynb
 .claude/settings.local.json
+CLAUDE.md
