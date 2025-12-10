@@ -12,8 +12,8 @@ class Config:
     # === GEOMETRY ===
     fault_length_km = 200.0  # Along-strike length (km)
     fault_depth_km = 25.0  # Down-dip depth (km)
-    element_size_km = 1  # Grid cell size (km)
-    # element_size_km = 0.1  # Grid cell size (km)
+    # element_size_km = 1.0  # Grid cell size (km)
+    element_size_km = 0.1  # Grid cell size (km)
 
     # === MOMENT ACCUMULATION ===
     # Background slip deficit rate
@@ -411,7 +411,7 @@ print(f"  Moment budget used: {history['moment_fraction'][-1] * 100:.1f}%")
 # print("  Saved: results/test_afterslip_time_series.png")
 # plt.close()
 
-FONTSIZE = 10
+FONTSIZE = 8
 
 # FIGURE 2: SPATIAL VELOCITY EVOLUTION
 print("Creating Figure 2: Spatial velocity evolution...")
@@ -492,6 +492,7 @@ plt.tight_layout()
 plt.savefig(
     "results/test_afterslip_velocity_evolution.png", dpi=500, bbox_inches="tight"
 )
+plt.savefig("results/test_afterslip_velocity_evolution.pdf", bbox_inches="tight")
 print("  Saved: results/test_afterslip_velocity_evolution.png")
 plt.close()
 
@@ -559,8 +560,121 @@ plt.tight_layout()
 plt.savefig(
     "results/test_afterslip_cumulative_evolution.png", dpi=500, bbox_inches="tight"
 )
-# plt.savefig("results/test_afterslip_cumulative_evolution.pdf", bbox_inches="tight")
+plt.savefig("results/test_afterslip_cumulative_evolution.pdf", bbox_inches="tight")
 print("  Saved: results/test_afterslip_cumulative_evolution.png")
+plt.close()
+
+# =============================================================================
+# FIGURE 4: COMBINED VELOCITY AND CUMULATIVE SLIP EVOLUTION (6x2 grid)
+# =============================================================================
+
+print("Creating Figure 4: Combined velocity and cumulative slip evolution...")
+fig, axes = plt.subplots(6, 2, figsize=(12, 8))
+
+for idx, t in enumerate(times_to_plot):
+    # Left column: Velocity (same as Figure 2)
+    ax_vel = axes[idx, 0]
+    v_field = history["snapshots"][t]["v_current"].reshape(nx, ny).T
+    v_field_log = np.log10(v_field + epsilon)
+
+    cbar_plot_vel = ax_vel.contourf(
+        length_grid,
+        depth_grid,
+        v_field_log,
+        cmap="plasma",
+        levels=global_levels_log,
+        extend="both",
+    )
+    ax_vel.contour(
+        length_grid,
+        depth_grid,
+        v_field_log,
+        colors="black",
+        linewidths=0.5,
+        linestyles="solid",
+        levels=global_levels_log,
+    )
+
+    ax_vel.set_title(f"$t$ = {t:0.1f} years", fontsize=FONTSIZE, fontweight="normal")
+    ax_vel.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax_vel.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+    ax_vel.set_aspect("equal")
+    ax_vel.set_ylim(0, 25)
+    ax_vel.invert_yaxis()
+    ax_vel.tick_params(labelsize=FONTSIZE)
+
+    circle_vel = plt.Circle(
+        (eq_center_x_km, eq_center_z_km),
+        eq_radius_km,
+        fill=False,
+        edgecolor="lightgray",
+        linewidth=5,
+        linestyle="-",
+        zorder=10,
+    )
+    ax_vel.add_patch(circle_vel)
+
+    cbar_vel = plt.colorbar(cbar_plot_vel, ax=ax_vel, fraction=0.005, pad=0.03)
+    cbar_vel.set_ticks([global_levels_log[0], global_levels_log[-1]])
+    cbar_vel.set_ticklabels(
+        [f"{global_levels_log[0]:.1f}", f"{global_levels_log[-1]:.1f}"]
+    )
+    cbar_vel.ax.tick_params(labelsize=FONTSIZE)
+    cbar_vel.set_label("log$_{10} \\; v$ (m/yr)", fontsize=FONTSIZE)
+
+    # Right column: Cumulative slip (same as Figure 3)
+    ax_cum = axes[idx, 1]
+    cum_slip = history["snapshots"][t]["cumulative_slip"].reshape(nx, ny).T
+
+    cbar_plot_cum = ax_cum.contourf(
+        length_grid,
+        depth_grid,
+        cum_slip,
+        cmap="viridis",
+        levels=global_levels,
+        extend="both",
+    )
+    ax_cum.contour(
+        length_grid,
+        depth_grid,
+        cum_slip,
+        colors="black",
+        linewidths=0.5,
+        linestyles="solid",
+        levels=global_levels,
+    )
+
+    ax_cum.set_title(f"$t$ = {t:0.1f} years", fontsize=FONTSIZE, fontweight="normal")
+    ax_cum.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax_cum.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+    ax_cum.set_aspect("equal")
+    ax_cum.set_ylim(0, 25)
+    ax_cum.invert_yaxis()
+    ax_cum.tick_params(labelsize=FONTSIZE)
+
+    circle_cum = plt.Circle(
+        (eq_center_x_km, eq_center_z_km),
+        eq_radius_km,
+        fill=False,
+        edgecolor="lightgray",
+        linewidth=5,
+        linestyle="-",
+        zorder=10,
+    )
+    ax_cum.add_patch(circle_cum)
+
+    cbar_cum = plt.colorbar(cbar_plot_cum, ax=ax_cum, fraction=0.005, pad=0.03)
+    cbar_cum.set_ticks([global_levels[0], global_levels[-1]])
+    cbar_cum.set_ticklabels([f"{global_levels[0]:.1f}", f"{global_levels[-1]:.1f}"])
+    cbar_cum.ax.tick_params(labelsize=FONTSIZE)
+    cbar_cum.set_label("$s$ (m)", fontsize=FONTSIZE)
+
+plt.tight_layout()
+plt.savefig(
+    "results/test_afterslip_combined_evolution.png", dpi=500, bbox_inches="tight"
+)
+plt.savefig("results/test_afterslip_combined_evolution.pdf", bbox_inches="tight")
+print("  Saved: results/test_afterslip_combined_evolution.png")
 plt.close()
 
 
