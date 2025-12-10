@@ -1,28 +1,191 @@
-"""
-Standalone validation test for single afterslip sequence - TEMPORAL EVOLUTION
-
-This script tests the time evolution of afterslip for a single coseismic event.
-Shows how velocity decays, cumulative slip accumulates, and moment depletes
-over a 10-year afterslip period.
-
-Validates:
-- Exponential velocity decay with spatially-varying rates
-- Cumulative slip accumulation
-- Moment budget tracking and depletion
-- Self-limiting behavior
-
-Generates 5 diagnostic plots showing temporal evolution.
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
-from config import Config
+
+# from config import Config
 from geometry import create_fault_mesh
 from afterslip import initialize_afterslip_sequence, update_afterslip_sequences
 
-# =============================================================================
-# SETUP - Mimic max_ent_afterslip.py
-# =============================================================================
+
+class Config:
+    """Simulation configuration"""
+
+    # === GEOMETRY ===
+    fault_length_km = 200.0  # Along-strike length (km)
+    fault_depth_km = 25.0  # Down-dip depth (km)
+    element_size_km = 1  # Grid cell size (km)
+    # element_size_km = 0.1  # Grid cell size (km)
+
+    # === MOMENT ACCUMULATION ===
+    # Background slip deficit rate
+    background_slip_rate_mm_yr = 10.0  # mm/year
+
+    # Gaussian moment pulse(s) - list of dicts
+    moment_pulses = [
+        {
+            "center_x_km": 100.0,  # Along-strike position
+            "center_z_km": 12.5,  # Down-dip position
+            "sigma_km": 20.0,  # Width of Gaussian
+            "amplitude_mm_yr": 0.0,  # Additional slip rate at center
+        }
+    ]
+
+    # === PHYSICAL PARAMETERS ===
+    shear_modulus_Pa = 3e10  # Pa (30 GPa)
+
+    # === MAGNITUDE-DEPENDENT SPATIAL PROBABILITY ===
+    gamma_min = 0.5  # Small events (SOC)
+    gamma_max = 1.5  # Large events (G-R)
+    alpha_spatial = 0.35  # Decay rate
+    M_min = 5.0  # Minimum magnitude
+    M_max = 8.0  # Maximum magnitude
+
+    # === ADAPTIVE RATE CORRECTION ===
+    adaptive_correction_enabled = (
+        True  # Enable adaptive correction (True = drives coupling toward 1.0)
+    )
+    adaptive_correction_gain = (
+        5.0  # Proportional control gain for coupling correction (continuous updates)
+    )
+    correction_factor_min = 0.1  # Minimum allowed correction factor
+    correction_factor_max = 10.0  # Maximum allowed correction factor
+
+    # === OMORI AFTERSHOCK PARAMETERS ===
+    # Standard Omori-Utsu law: λ_aftershock(t) = K / (t + c)^p
+    # where K scales with mainshock magnitude: K = K_ref × 10^(alpha × (M - M_ref))
+    omori_enabled = True  # Enable/disable aftershock sequences
+    omori_p = 1.0  # Decay exponent (typically ~1.0)
+    omori_c_years = 1.0 / 365.25  # Time offset in years (~0.00274 years = 1 day)
+    omori_K_ref = 0.1  # Productivity (events/year) for M=6 mainshock
+    omori_M_ref = 6.0  # Reference magnitude for productivity
+    omori_alpha = 0.8  # Magnitude scaling (Reasenberg & Jones 1989)
+    omori_duration_years = (
+        10.0  # Only track aftershocks for this many years after mainshock
+    )
+
+    # === BACKGROUND RATE ===
+    lambda_background = 0.0  # Constant background rate (events/year, default disabled)
+
+    # === RANDOM PERTURBATIONS ===
+    perturbation_type = "none"  # Options: "none", "white_noise", "ornstein_uhlenbeck"
+    perturbation_sigma = (
+        0.01  # White noise: std dev (events/yr); OU: diffusion coefficient
+    )
+    perturbation_mean = 0.0  # OU process only: mean perturbation level (events/yr)
+    perturbation_theta = 1.0  # OU process only: reversion rate (1/years)
+
+    # === AFTERSLIP PARAMETERS ===
+    # MaxEnt afterslip model: aseismic creep following coseismic events
+    # Spatial activation Φ(x,y) also controls aftershock localization
+    afterslip_enabled = True  # Enable/disable afterslip physics
+    afterslip_v_ref_m_yr = 0.5  # Reference initial velocity (m/yr) at M_ref
+    afterslip_M_ref = 7.0  # Reference magnitude for velocity scaling
+    afterslip_beta = 0.33  # Magnitude scaling exponent (1/3 from MaxEnt theory)
+    afterslip_correlation_length_x_km = (
+        5.0  # Spatial correlation length ξ_x (along-strike)
+    )
+    afterslip_correlation_length_z_km = 5.0  # Spatial correlation length ξ_z (down-dip)
+    afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
+    afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
+    afterslip_duration_years = 10.0  # Track sequences for this many years
+    afterslip_m_critical = 0.01  # Minimum residual moment for afterslip (m)
+    afterslip_v_min = 1e-6  # Minimum velocity for numerical stability (m/yr)
+    afterslip_M_min = 6.0  # Only trigger afterslip for M ≥ this threshold [RAISED]
+    afterslip_spatial_threshold = (
+        0.3  # Only allow afterslip where Phi > threshold [NEW]
+    )
+
+    # === MOMENT INITIALIZATION ===
+    spinup_fraction = 0.25  # Initialize with this fraction of mid-cycle moment (0.25 = recurrence_time/4)
+
+    # === SLIP DISTRIBUTION ===
+    slip_decay_rate = 2.0  # Exponential decay rate of slip from hypocenter
+    slip_heterogeneity = 0.3  # Random perturbation amplitude (±30%)
+
+    # === GUTENBERG-RICHTER ===
+    b_value = 1.0
+
+    # === SIMULATION ===
+    duration_years = 1000.0  # Full simulation duration
+    time_step_years = 1.0  # Time resolution (years)
+
+    # Random seed for reproducibility
+    random_seed = 42
+
+    # === OUTPUT ===
+    output_dir = "results"
+    output_hdf5 = "simulation_results.h5"
+    hdf5_compression = (
+        0  # gzip compression level (0=none for speed, 4=balanced, 9=max compression)
+    )
+    snapshot_interval_years = (
+        1.0  # Save moment snapshots every N years (1.0 = every timestep)
+    )
+
+    def compute_derived_parameters(self):
+        """Compute parameters that depend on others"""
+        # Grid dimensions
+        self.n_along_strike = int(self.fault_length_km / self.element_size_km)
+        self.n_down_dip = int(self.fault_depth_km / self.element_size_km)
+        self.n_elements = self.n_along_strike * self.n_down_dip
+
+        # Element area
+        self.element_area_m2 = (self.element_size_km * 1000) ** 2
+
+        # Time steps
+        self.n_time_steps = int(self.duration_years / self.time_step_years)
+
+        # Convert slip rates to m/year
+        self.background_slip_rate_m_yr = self.background_slip_rate_mm_yr / 1000.0
+
+        # Total moment accumulation rate (N·m/year)
+        total_slip_rate = self.background_slip_rate_m_yr * self.n_elements
+        self.total_moment_rate = (
+            self.shear_modulus_Pa * self.element_area_m2 * total_slip_rate
+        )
+
+        print(
+            f"Grid: {self.n_along_strike} x {self.n_down_dip} = {self.n_elements} elements"
+        )
+        print(f"Total moment rate: {self.total_moment_rate:.2e} N·m/year")
+
+    def to_dict(self):
+        """
+        Serialize configuration to dictionary for HDF5 storage
+
+        Returns:
+        --------
+        config_dict : dict
+            Dictionary of all config parameters (excludes methods and private attrs)
+        """
+        config_dict = {}
+        for key, value in self.__dict__.items():
+            # Skip private attributes and methods
+            if key.startswith("_") or callable(value):
+                continue
+            # Store all simple types
+            config_dict[key] = value
+        return config_dict
+
+    @classmethod
+    def from_dict(cls, config_dict):
+        """
+        Reconstruct Config object from dictionary
+
+        Parameters:
+        -----------
+        config_dict : dict
+            Dictionary of config parameters
+
+        Returns:
+        --------
+        config : Config
+            Reconstructed configuration object
+        """
+        config = cls()
+        for key, value in config_dict.items():
+            setattr(config, key, value)
+        return config
+
 
 # Initialize config
 config = Config()
@@ -90,10 +253,7 @@ print(
     f"  m_current in halo (r > {eq_radius_km + 5:.0f} km): {m_current[dist_from_eq > eq_radius_km + 5].mean():.3f} m"
 )
 
-# =============================================================================
 # INITIALIZE AFTERSLIP SEQUENCE
-# =============================================================================
-
 print("\nInitializing afterslip sequence...")
 sequence = initialize_afterslip_sequence(event, m_current, mesh, config)
 
@@ -119,10 +279,7 @@ print(f"  Position: x={peak_x:.1f} km, z={peak_z:.1f} km")
 print(f"  Distance from rupture center: {peak_dist_from_center:.1f} km")
 print(f"  Expected: ~{eq_radius_km} km (inner halo edge)")
 
-# =============================================================================
 # TIME EVOLUTION LOOP
-# =============================================================================
-
 print("\nRunning time evolution...")
 
 # Time parameters
@@ -220,48 +377,45 @@ print(f"\nTime evolution complete.")
 print(f"  Final moment released: {sequence['moment_released']:.2e} m³")
 print(f"  Moment budget used: {history['moment_fraction'][-1] * 100:.1f}%")
 
-# =============================================================================
-# FIGURE 1: TIME SERIES
-# =============================================================================
 
-print("\nCreating Figure 1: Time series...")
-fig, axes = plt.subplots(4, 1, figsize=(12, 12))
+# # FIGURE 1: TIME SERIES
+# print("\nCreating Figure 1: Time series...")
+# fig, axes = plt.subplots(4, 1, figsize=(12, 12))
 
-# Panel A: Total velocity vs time
-axes[0].plot(history["times"], history["v_total"], "b-", linewidth=2)
-axes[0].set_ylabel("Total Velocity (m/yr)", fontsize=12)
-axes[0].set_title("Afterslip Time Evolution", fontsize=14, fontweight="bold")
-axes[0].grid(True, alpha=0.3)
+# # Panel A: Total velocity vs time
+# axes[0].plot(history["times"], history["v_total"], "b-", linewidth=2)
+# axes[0].set_ylabel("Total Velocity (m/yr)", fontsize=12)
+# axes[0].set_title("Afterslip Time Evolution", fontsize=14, fontweight="bold")
+# axes[0].grid(True, alpha=0.3)
 
-# Panel B: Maximum velocity vs time (log scale)
-axes[1].semilogy(history["times"], history["v_max"], "r-", linewidth=2)
-axes[1].set_ylabel("Max Velocity (m/yr)", fontsize=12)
-axes[1].grid(True, alpha=0.3, which="both")
+# # Panel B: Maximum velocity vs time (log scale)
+# axes[1].semilogy(history["times"], history["v_max"], "r-", linewidth=2)
+# axes[1].set_ylabel("Max Velocity (m/yr)", fontsize=12)
+# axes[1].grid(True, alpha=0.3, which="both")
 
-# Panel C: Moment budget fraction
-axes[2].plot(history["times"], history["moment_fraction"], "g-", linewidth=2)
-axes[2].set_ylabel("Moment Budget Fraction", fontsize=12)
-axes[2].axhline(1.0, color="k", linestyle="--", alpha=0.5, label="Full budget")
-axes[2].legend()
-axes[2].grid(True, alpha=0.3)
+# # Panel C: Moment budget fraction
+# axes[2].plot(history["times"], history["moment_fraction"], "g-", linewidth=2)
+# axes[2].set_ylabel("Moment Budget Fraction", fontsize=12)
+# axes[2].axhline(1.0, color="k", linestyle="--", alpha=0.5, label="Full budget")
+# axes[2].legend()
+# axes[2].grid(True, alpha=0.3)
 
-# Panel D: Number of active patches
-axes[3].plot(history["times"], history["n_active_patches"], "m-", linewidth=2)
-axes[3].set_ylabel("N Active Patches", fontsize=12)
-axes[3].set_xlabel("Time (years)", fontsize=12)
-axes[3].grid(True, alpha=0.3)
+# # Panel D: Number of active patches
+# axes[3].plot(history["times"], history["n_active_patches"], "m-", linewidth=2)
+# axes[3].set_ylabel("N Active Patches", fontsize=12)
+# axes[3].set_xlabel("Time (years)", fontsize=12)
+# axes[3].grid(True, alpha=0.3)
 
-plt.tight_layout()
-plt.savefig("results/test_afterslip_time_series.png", dpi=150, bbox_inches="tight")
-print("  Saved: results/test_afterslip_time_series.png")
-plt.close()
+# plt.tight_layout()
+# plt.savefig("results/test_afterslip_time_series.png", dpi=150, bbox_inches="tight")
+# print("  Saved: results/test_afterslip_time_series.png")
+# plt.close()
 
-# =============================================================================
+FONTSIZE = 10
+
 # FIGURE 2: SPATIAL VELOCITY EVOLUTION
-# =============================================================================
-
 print("Creating Figure 2: Spatial velocity evolution...")
-fig, axes = plt.subplots(6, 1, figsize=(15, 15))
+fig, axes = plt.subplots(6, 1, figsize=(10, 10))
 times_to_plot = [0, 0.1, 1.0, 3.0, 5.0, 10.0]
 # times_to_plot = [0, 0.5, 1.0, 5.0, 10.0, 25.0]
 
@@ -312,30 +466,31 @@ for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
         levels=global_levels_log,
     )
 
-    ax.set_title(f"$t$ = {t} years", fontsize=12, fontweight="normal")
-    ax.set_xlabel("$x$ (km)", fontsize=12)
-    ax.set_ylabel("$d$ (km)", fontsize=12)
+    ax.set_title(f"$t$ = {t:0.1f} years", fontsize=FONTSIZE, fontweight="normal")
+    ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
     ax.set_aspect("equal")
     ax.invert_yaxis()
 
-    # # Add rupture boundary
-    # circle = plt.Circle(
-    #     (eq_center_x_km, eq_center_z_km),
-    #     eq_radius_km,
-    #     fill=False,
-    #     edgecolor="blue",
-    #     linewidth=2,
-    #     linestyle="--",
-    # )
-    # ax.add_patch(circle)
+    # Add rupture boundary
+    circle = plt.Circle(
+        (eq_center_x_km, eq_center_z_km),
+        eq_radius_km,
+        fill=False,
+        edgecolor="lightgray",
+        linewidth=5,
+        linestyle="-",
+        zorder=10,
+    )
+    ax.add_patch(circle)
 
     # Colorbar (matched height to subplot)
     cbar = plt.colorbar(cbar_plot, ax=ax, fraction=0.005, pad=0.03)
-    cbar.set_label("log$_{10} \\; v$ (m/yr)", fontsize=12)
+    cbar.set_label("log$_{10} \\; v$ (m/yr)", fontsize=FONTSIZE)
 
 plt.tight_layout()
 plt.savefig(
-    "results/test_afterslip_velocity_evolution.png", dpi=300, bbox_inches="tight"
+    "results/test_afterslip_velocity_evolution.png", dpi=500, bbox_inches="tight"
 )
 print("  Saved: results/test_afterslip_velocity_evolution.png")
 plt.close()
@@ -345,7 +500,7 @@ plt.close()
 # =============================================================================
 
 print("Creating Figure 3: Cumulative slip evolution...")
-fig, axes = plt.subplots(6, 1, figsize=(15, 18))
+fig, axes = plt.subplots(6, 1, figsize=(10, 10))
 
 # Compute global color limits across all snapshots
 all_cum_slip = [history["snapshots"][t]["cumulative_slip"] for t in times_to_plot]
@@ -378,9 +533,9 @@ for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
         levels=global_levels,
     )
 
-    ax.set_title(f"t = {t} years", fontsize=12, fontweight="normal")
-    ax.set_xlabel("$x$ (km)", fontsize=12)
-    ax.set_ylabel("$d$ (km)", fontsize=12)
+    ax.set_title(f"$t$ = {t:0.1f} years", fontsize=FONTSIZE, fontweight="normal")
+    ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
     ax.set_aspect("equal")
     ax.invert_yaxis()
 
@@ -389,29 +544,30 @@ for idx, (ax, t) in enumerate(zip(axes, times_to_plot)):
         (eq_center_x_km, eq_center_z_km),
         eq_radius_km,
         fill=False,
-        edgecolor="red",
-        linewidth=2,
-        linestyle="--",
+        edgecolor="lightgray",
+        linewidth=5,
+        linestyle="-",
+        zorder=10,
     )
     ax.add_patch(circle)
 
     # Colorbar (matched height to subplot)
-    cbar = plt.colorbar(cbar_plot, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label("Cumulative Slip (m)", fontsize=11)
+    cbar = plt.colorbar(cbar_plot, ax=ax, fraction=0.005, pad=0.03)
+    cbar.set_label("$s$ (m)", fontsize=FONTSIZE)
 
 plt.tight_layout()
 plt.savefig(
-    "results/test_afterslip_cumulative_evolution.png", dpi=300, bbox_inches="tight"
+    "results/test_afterslip_cumulative_evolution.png", dpi=500, bbox_inches="tight"
 )
+# plt.savefig("results/test_afterslip_cumulative_evolution.pdf", bbox_inches="tight")
 print("  Saved: results/test_afterslip_cumulative_evolution.png")
 plt.close()
 
-# =============================================================================
-# FIGURE 4: RADIAL PROFILES OVER TIME
-# =============================================================================
 
-print("Creating Figure 4: Radial profiles over time...")
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+### RADIAL PROFILES OVER TIME
+FONTSIZE = 10
+LINEWIDTH = 0.5
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 4))
 
 # Radial distances for profile
 radial_distances = dist_from_eq
@@ -421,22 +577,25 @@ sort_idx = np.argsort(radial_distances)
 for t in times_to_plot:
     v_field = history["snapshots"][t]["v_current"]
     ax1.plot(
-        radial_distances[sort_idx], v_field[sort_idx], linewidth=2, label=f"t = {t} yr"
+        radial_distances[sort_idx],
+        v_field[sort_idx],
+        linewidth=LINEWIDTH,
+        label=f"$t$ = {t:0.1f} yr",
     )
-
-ax1.axvline(
-    eq_radius_km,
-    color="k",
-    linestyle="--",
-    linewidth=2,
-    alpha=0.5,
-    label="Rupture edge",
+ax1.fill(
+    [0, eq_radius_km, eq_radius_km, 0],
+    [0.0, 0.0, 0.8, 0.8],
+    color="lightgray",
+    label="rupture zone",
 )
-ax1.set_xlabel("Distance from center (km)", fontsize=12)
-ax1.set_ylabel("Velocity (m/yr)", fontsize=12)
-ax1.set_title("Velocity vs Radius", fontsize=14, fontweight="bold")
+ax1.set_xlabel("$r$ (km)", fontsize=FONTSIZE)
+ax1.set_ylabel("$v$ (m/yr)", fontsize=FONTSIZE)
+ax1.set_xlim([0, 100])
+ax1.set_ylim([0, 0.8])
+ax1.set_xticks([0, 50, 100])
+ax1.set_yticks([0.0, 0.4, 0.8])
 ax1.legend()
-ax1.grid(True, alpha=0.3)
+ax1.grid(False)
 
 # Panel 2: Cumulative slip profiles
 for t in times_to_plot:
@@ -444,57 +603,57 @@ for t in times_to_plot:
     ax2.plot(
         radial_distances[sort_idx],
         cum_field[sort_idx],
-        linewidth=2,
-        label=f"t = {t} yr",
+        linewidth=LINEWIDTH,
+        label=f"$t$ = {t:0.1f} yr",
     )
-
-ax2.axvline(
-    eq_radius_km,
-    color="k",
-    linestyle="--",
-    linewidth=2,
-    alpha=0.5,
-    label="Rupture edge",
+ax2.fill(
+    [0, eq_radius_km, eq_radius_km, 0],
+    [0.0, 0.0, 1.6, 1.6],
+    color="lightgray",
+    label="rupture zone",
 )
-ax2.set_xlabel("Distance from center (km)", fontsize=12)
-ax2.set_ylabel("Cumulative Slip (m)", fontsize=12)
-ax2.set_title("Cumulative Slip vs Radius", fontsize=14, fontweight="bold")
+ax2.set_xlabel("$r$ (km)", fontsize=FONTSIZE)
+ax2.set_ylabel("$s$ (m)", fontsize=FONTSIZE)
+ax2.set_xlim([0, 100])
+ax2.set_ylim([0, 1.6])
+ax2.set_xticks([0, 50, 100])
+ax2.set_yticks([0.0, 0.8, 1.6])
 ax2.legend()
-ax2.grid(True, alpha=0.3)
+ax2.grid(False)
 
 plt.tight_layout()
-plt.savefig("results/test_afterslip_radial_profiles.png", dpi=150, bbox_inches="tight")
-print("  Saved: results/test_afterslip_radial_profiles.png")
+plt.savefig("results/test_afterslip_radial_profiles.png", dpi=500, bbox_inches="tight")
+plt.savefig("results/test_afterslip_radial_profiles.pdf")
 plt.close()
 
-# =============================================================================
-# FIGURE 5: VELOCITY DECAY CURVES AT SAMPLE LOCATIONS
-# =============================================================================
+# # =============================================================================
+# # FIGURE 5: VELOCITY DECAY CURVES AT SAMPLE LOCATIONS
+# # =============================================================================
 
-print("Creating Figure 5: Velocity decay curves...")
-fig, ax = plt.subplots(figsize=(12, 7))
+# print("Creating Figure 5: Velocity decay curves...")
+# fig, ax = plt.subplots(figsize=(12, 7))
 
-for loc in sample_locations:
-    ax.semilogy(history["times"], velocity_timeseries[loc], linewidth=2, label=loc)
+# for loc in sample_locations:
+#     ax.semilogy(history["times"], velocity_timeseries[loc], linewidth=2, label=loc)
 
-ax.set_xlabel("Time (years)", fontsize=12)
-ax.set_ylabel("Velocity (m/yr)", fontsize=12)
-ax.set_title("Velocity Decay at Sample Locations", fontsize=14, fontweight="bold")
-ax.legend(fontsize=11)
-ax.grid(True, alpha=0.3, which="both")
+# ax.set_xlabel("Time (years)", fontsize=12)
+# ax.set_ylabel("Velocity (m/yr)", fontsize=12)
+# ax.set_title("Velocity Decay at Sample Locations", fontsize=14, fontweight="bold")
+# ax.legend(fontsize=11)
+# ax.grid(True, alpha=0.3, which="both")
 
-plt.tight_layout()
-plt.savefig("results/test_afterslip_decay_curves.png", dpi=150, bbox_inches="tight")
-print("  Saved: results/test_afterslip_decay_curves.png")
-plt.close()
+# plt.tight_layout()
+# plt.savefig("results/test_afterslip_decay_curves.png", dpi=150, bbox_inches="tight")
+# print("  Saved: results/test_afterslip_decay_curves.png")
+# plt.close()
 
-print("\n" + "=" * 70)
-print("ALL FIGURES COMPLETE")
-print("=" * 70)
-print("Generated 5 diagnostic plots showing temporal evolution:")
-print("  1. test_afterslip_time_series.png - Time series of key quantities")
-print("  2. test_afterslip_velocity_evolution.png - Spatial velocity at 6 times")
-print("  3. test_afterslip_cumulative_evolution.png - Cumulative slip at 6 times")
-print("  4. test_afterslip_radial_profiles.png - Radial profiles over time")
-print("  5. test_afterslip_decay_curves.png - Decay curves at sample locations")
-print("=" * 70)
+# print("\n" + "=" * 70)
+# print("ALL FIGURES COMPLETE")
+# print("=" * 70)
+# print("Generated 5 diagnostic plots showing temporal evolution:")
+# print("  1. test_afterslip_time_series.png - Time series of key quantities")
+# print("  2. test_afterslip_velocity_evolution.png - Spatial velocity at 6 times")
+# print("  3. test_afterslip_cumulative_evolution.png - Cumulative slip at 6 times")
+# print("  4. test_afterslip_radial_profiles.png - Radial profiles over time")
+# print("  5. test_afterslip_decay_curves.png - Decay curves at sample locations")
+# print("=" * 70)
