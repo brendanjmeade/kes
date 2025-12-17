@@ -113,9 +113,11 @@ def run_simulation(config):
     afterslip_sequences = []  # Track active afterslip sequences
     afterslip_cumulative = np.zeros(config.n_elements)  # Total afterslip over simulation
 
-    # Track cumulative moment for rate calculation
-    initial_moment = np.sum(m_current)
-    cumulative_loading = 0.0  # FIX: Start at zero, add initial moment to first update
+    # Track cumulative geometric moment (m³) for rate calculation
+    # m_current is in meters (slip deficit), multiply by area to get geometric moment
+    initial_slip_deficit = np.sum(m_current)  # Total slip deficit (m)
+    initial_geom_moment = np.sum(m_current * config.element_area_m2)  # Geometric moment (m³)
+    cumulative_loading = 0.0  # Start at zero, accumulate geometric moment over time
     cumulative_release = 0.0  # No events yet
 
     # Track spatial cumulative release for visualization
@@ -135,7 +137,8 @@ def run_simulation(config):
     print(f"  Time steps: {config.n_time_steps}")
     print(f"  Time step size: {config.time_step_years} years")
     print("  Event generation: Deterministic accumulator")
-    print(f"  Initial moment (spin-up): {initial_moment:.2e} m³")
+    print(f"  Initial slip deficit: {initial_slip_deficit:.2e} m")
+    print(f"  Initial geometric moment: {initial_geom_moment:.2e} m³")
     print(f"  Cumulative loading accounting: starts at 0.0 m³")
     if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
         print(f"  Rate correction: CONTINUOUS (updated every timestep)")
@@ -179,14 +182,13 @@ def run_simulation(config):
                 geom_moment_afterslip = np.sum(afterslip_release * config.element_area_m2)
                 cumulative_release += geom_moment_afterslip
 
-        # Accumulate moment
-        m_current = accumulate_moment(
-            m_current, slip_rate, config.element_area_m2, dt_years
-        )
+        # Accumulate slip deficit (m_current is in meters)
+        m_current = accumulate_moment(m_current, slip_rate, dt_years)
 
-        # Update cumulative loading
-        moment_added = np.sum(slip_rate * config.element_area_m2) * dt_years
-        cumulative_loading += moment_added
+        # Update cumulative loading (geometric moment in m³)
+        # slip_rate (m/yr) * area (m²) * dt (yr) = m³
+        geom_moment_added = np.sum(slip_rate * config.element_area_m2) * dt_years
+        cumulative_loading += geom_moment_added
 
         # Update Ornstein-Uhlenbeck perturbation process (before computing rate)
         # dX = -θ X dt + σ sqrt(dt) dW
@@ -310,8 +312,8 @@ def run_simulation(config):
                 # This is the authoritative value - use slip that was actually applied
                 geom_moment_released = np.sum(slip * config.element_area_m2)
 
-                # Update moment distribution (release slip)
-                m_working = release_moment(m_working, slip, config.element_area_m2)
+                # Update slip deficit (release slip)
+                m_working = release_moment(m_working, slip)
 
                 # Update cumulative release with actual geometric moment
                 cumulative_release += geom_moment_released

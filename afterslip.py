@@ -140,13 +140,17 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
         * (magnitude / config.afterslip_M_ref) ** config.afterslip_beta
     )
 
+    # Apply spatial threshold: only allow afterslip where Phi exceeds threshold
+    # This prevents afterslip from leaking to boundaries with high m_residual but low Phi
+    spatial_mask = Phi >= config.afterslip_spatial_threshold
+    m_residual_initial[~spatial_mask] = 0.0  # Zero out m_residual outside halo
+
     # Initial velocity field (MaxEnt form: v ∝ Φ × m_residual)
     # This creates peak afterslip in halo region (high m_residual, medium Phi)
     # and lower afterslip on ruptured patch (low m_residual despite high Phi)
     v_initial = v_mag_scale * Phi * m_residual_initial
 
     # Apply minimum velocity threshold for numerical stability
-    # No spatial threshold - let natural Phi × m_residual product determine extent
     v_initial[v_initial < config.afterslip_v_min] = 0.0
 
     # Decay rates: decay_rate = v₀ / m_residual₀

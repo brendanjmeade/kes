@@ -13,9 +13,10 @@ FONTSIZE = 10
 
 def plot_moment_budget(results, config):
     """
-    Plot moment budget showing loading vs release
+    Plot moment budget showing loading vs release (coseismic + afterslip)
 
-    Uses actual event times to ensure accurate tracking throughout simulation
+    Uses actual event times to ensure accurate tracking throughout simulation.
+    Now includes afterslip release for complete moment accounting.
     """
     event_history = results["event_history"]
 
@@ -28,10 +29,18 @@ def plot_moment_budget(results, config):
     else:
         times = np.linspace(0, config.duration_years, 1000)
 
+    # Get afterslip snapshots if available (for total release accounting)
+    afterslip_cumulative = None
+    afterslip_times = None
+    if "afterslip_snapshots" in results:
+        afterslip_cumulative = results["afterslip_snapshots"]
+        afterslip_times = results.get("times", np.linspace(0, config.duration_years, len(afterslip_cumulative)))
+
     # These correctly account for all moment including initial spin-up
     if "cumulative_loading" in results and "cumulative_release" in results:
         # Get final values from simulator
         final_loading = results["cumulative_loading"]
+        final_release_total = results["cumulative_release"]  # Includes coseismic + afterslip
 
         # Create time array for plotting
         final_time = config.duration_years
@@ -39,15 +48,26 @@ def plot_moment_budget(results, config):
         # Linear loading over time (constant rate)
         cumulative_loading = times * (final_loading / final_time)
 
-        # Release: step function at each event time
-        cumulative_release = np.zeros_like(times)
+        # Coseismic release: step function at each event time
+        cumulative_coseismic = np.zeros_like(times)
         if len(event_history) > 0:
             event_times_array = np.array([e["time"] for e in event_history])
             event_moments_array = np.array([e["geom_moment"] for e in event_history])
 
             for i, t in enumerate(times):
                 mask = event_times_array <= t
-                cumulative_release[i] = np.sum(event_moments_array[mask])
+                cumulative_coseismic[i] = np.sum(event_moments_array[mask])
+
+        # Afterslip release: interpolate from snapshots
+        cumulative_afterslip = np.zeros_like(times)
+        if afterslip_cumulative is not None and len(afterslip_cumulative) > 0:
+            # Sum over spatial elements and convert to geometric moment
+            afterslip_total = np.sum(afterslip_cumulative, axis=1) * config.element_area_m2
+            # Interpolate to dense time array
+            cumulative_afterslip = np.interp(times, afterslip_times, afterslip_total)
+
+        # Total release = coseismic + afterslip
+        cumulative_release = cumulative_coseismic + cumulative_afterslip
     else:
         # Fallback: reconstruct from loading rate (old method, less accurate)
         print(
@@ -60,41 +80,64 @@ def plot_moment_budget(results, config):
         )
         cumulative_loading = times * total_loading_rate
 
-        cumulative_release = np.zeros_like(times)
+        cumulative_coseismic = np.zeros_like(times)
         if len(event_history) > 0:
             event_times_array = np.array([e["time"] for e in event_history])
             event_moments_array = np.array([e["geom_moment"] for e in event_history])
 
             for i, t in enumerate(times):
                 mask = event_times_array <= t
-                cumulative_release[i] = np.sum(event_moments_array[mask])
+                cumulative_coseismic[i] = np.sum(event_moments_array[mask])
+
+        cumulative_afterslip = np.zeros_like(times)
+        cumulative_release = cumulative_coseismic
 
     # Convert to seismic moment for plotting
     cumulative_loading_seismic = cumulative_loading * config.shear_modulus_Pa
     cumulative_release_seismic = cumulative_release * config.shear_modulus_Pa
+    cumulative_coseismic_seismic = cumulative_coseismic * config.shear_modulus_Pa
+    cumulative_afterslip_seismic = cumulative_afterslip * config.shear_modulus_Pa
 
     # Create figure
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
 
-    # Top panel: Cumulative moment
+    # Top panel: Cumulative moment with breakdown
     ax1.plot(
         times,
         cumulative_loading_seismic,
         "b-",
-        linewidth=1,
-        label="cumulative moment accumulation",
+        linewidth=1.5,
+        label="Moment accumulation",
     )
     ax1.plot(
         times,
         cumulative_release_seismic,
         "r-",
-        linewidth=1,
-        label="cumulative moment release",
+        linewidth=1.5,
+        label="Total release (coseismic + afterslip)",
     )
+    # Show breakdown if afterslip is significant
+    if np.max(cumulative_afterslip) > 0:
+        ax1.plot(
+            times,
+            cumulative_coseismic_seismic,
+            "r--",
+            linewidth=1,
+            alpha=0.7,
+            label="Coseismic only",
+        )
+        ax1.fill_between(
+            times,
+            cumulative_coseismic_seismic,
+            cumulative_release_seismic,
+            alpha=0.3,
+            color="orange",
+            label="Afterslip contribution",
+        )
     ax1.set_xlabel("$t$ (years)")
     ax1.set_ylabel("Cumulative Moment (N·m)")
     ax1.set_title("Moment Budget: Loading vs. Release")
-    ax1.legend()
+    ax1.legend(loc="upper left")
     ax1.grid(True, alpha=0.3)
 
     # Bottom panel: Moment deficit
@@ -109,20 +152,30 @@ def plot_moment_budget(results, config):
     )
     ax2.set_xlabel("Time (years)")
     ax2.set_ylabel("Moment Deficit (m³)")
-    ax2.set_title("Accumulated Moment Deficit")
+    ax2.set_title("Accumulated Moment Deficit (Loading - Total Release)")
     ax2.grid(True, alpha=0.3)
 
-    # Compute coupling coefficient
+    # Compute coupling coefficients
     max_time = times[-1]
     if max_time > 0:
         total_loaded = cumulative_loading[-1]
         total_released = cumulative_release[-1]
-        coupling_coef = total_released / total_loaded
+        coseismic_released = cumulative_coseismic[-1]
+        afterslip_released = cumulative_afterslip[-1]
 
+        total_coupling = total_released / total_loaded if total_loaded > 0 else 0
+        coseismic_coupling = coseismic_released / total_loaded if total_loaded > 0 else 0
+        afterslip_fraction = afterslip_released / total_released if total_released > 0 else 0
+
+        info_text = (
+            f"Total Coupling: {total_coupling:.3f}\n"
+            f"Coseismic: {coseismic_coupling:.3f} ({100*(1-afterslip_fraction):.0f}%)\n"
+            f"Afterslip: {total_coupling - coseismic_coupling:.3f} ({100*afterslip_fraction:.0f}%)"
+        )
         ax2.text(
             0.02,
             0.95,
-            f"Seismic Coupling: {coupling_coef:.3f}",
+            info_text,
             transform=ax2.transAxes,
             fontsize=FONTSIZE,
             verticalalignment="top",
@@ -510,6 +563,7 @@ def create_moment_animation(results, config):
     Uses symmetric colorbar with fixed limits from extrema
     Reconstructs deficit same way as plot_moment_snapshots for consistency
     """
+    print("Starting animation!!!")
 
     def scale(values):
         power = 0.2
@@ -537,7 +591,9 @@ def create_moment_animation(results, config):
 
     # Compute afterslip colorbar limits (not symmetric - cumulative only grows)
     max_afterslip_elem = np.max(afterslip_snapshots[-1])  # Maximum at final time (m)
-    max_afterslip_scaled = scale(max_afterslip_elem * config.element_area_m2)  # Scale to m³
+    max_afterslip_scaled = scale(
+        max_afterslip_elem * config.element_area_m2
+    )  # Scale to m³
     vmin_afterslip = 0.0
     # Prevent zero range when afterslip is disabled or zero
     vmax_afterslip = max(max_afterslip_scaled, 1e-10)
@@ -545,7 +601,9 @@ def create_moment_animation(results, config):
     # Define contour levels (fixed for all frames)
     n_levels = 20
     levels_deficit = np.linspace(vmin_deficit, vmax_deficit, n_levels)  # Symmetric
-    levels_afterslip = np.linspace(vmin_afterslip, vmax_afterslip, n_levels)  # Non-symmetric
+    levels_afterslip = np.linspace(
+        vmin_afterslip, vmax_afterslip, n_levels
+    )  # Non-symmetric
 
     # Create grids for contourf plotting
     length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
@@ -580,7 +638,7 @@ def create_moment_animation(results, config):
 
     ax1.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
     ax1.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
-    ax1.set_aspect('equal')
+    ax1.set_aspect("equal")
     ax1.invert_yaxis()  # Match slip map orientation
     title1 = ax1.set_title(
         "$m_\\mathrm{a} - m_\\mathrm{r}$, $t$ = 0.0 years", fontsize=FONTSIZE
@@ -591,7 +649,9 @@ def create_moment_animation(results, config):
 
     # ===== PANEL 2 (BOTTOM): Afterslip Cumulative Release =====
     spatial_afterslip = afterslip_snapshots[snapshot_idx] * config.element_area_m2  # m³
-    afterslip_grid = spatial_afterslip.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
+    afterslip_grid = spatial_afterslip.reshape(
+        mesh["n_along_strike"], mesh["n_down_dip"]
+    ).T
     afterslip_grid = scale(afterslip_grid)
 
     # Initial contourf with non-symmetric limits (0 to max)
@@ -607,13 +667,14 @@ def create_moment_animation(results, config):
 
     ax2.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
     ax2.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
-    ax2.set_aspect('equal')
+    ax2.set_aspect("equal")
     ax2.invert_yaxis()
 
     # Add title with disabled note if applicable
     afterslip_status = "" if config.afterslip_enabled else " (DISABLED)"
     title2 = ax2.set_title(
-        f"Afterslip cumulative release{afterslip_status}, $t$ = 0.0 years", fontsize=FONTSIZE
+        f"Afterslip cumulative release{afterslip_status}, $t$ = 0.0 years",
+        fontsize=FONTSIZE,
     )
 
     # Add colorbar
@@ -665,8 +726,12 @@ def create_moment_animation(results, config):
         )
 
         # ===== PANEL 2: Afterslip Cumulative Release =====
-        spatial_afterslip = afterslip_snapshots[snapshot_idx] * config.element_area_m2  # m³
-        afterslip_grid = spatial_afterslip.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
+        spatial_afterslip = (
+            afterslip_snapshots[snapshot_idx] * config.element_area_m2
+        )  # m³
+        afterslip_grid = spatial_afterslip.reshape(
+            mesh["n_along_strike"], mesh["n_down_dip"]
+        ).T
         afterslip_grid = scale(afterslip_grid)
 
         # Redraw contourf
@@ -715,5 +780,10 @@ def plot_all(results, config):
     plot_moment_budget(results, config)
     plot_evolution_overview(results, config)
 
-    # Animation (can take a long time)
-    create_moment_animation(results, config)
+    # Animation (can take a long time, may fail if ffmpeg not working)
+    try:
+        create_moment_animation(results, config)
+    except Exception as e:
+        print(f"\nWARNING: Animation creation failed: {e}")
+        print("  Try: brew reinstall ffmpeg")
+        print("  Other plots completed successfully.")

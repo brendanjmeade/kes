@@ -83,7 +83,7 @@ class Config:
     afterslip_correlation_length_x_km = (
         7.5  # Spatial correlation length ξ_x (along-strike)
     )
-    afterslip_correlation_length_z_km = 7.5  # Spatial correlation length ξ_z (down-dip)
+    afterslip_correlation_length_z_km = 2.5  # Spatial correlation length ξ_z (down-dip)
     afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
     afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
     afterslip_duration_years = 10.0  # Track sequences for this many years
