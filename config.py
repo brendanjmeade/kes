@@ -73,23 +73,35 @@ class Config:
     perturbation_mean = 0.0  # OU process only: mean perturbation level (events/yr)
     perturbation_theta = 1.0  # OU process only: reversion rate (1/years)
 
-    # === AFTERSLIP PARAMETERS ===
-    # MaxEnt afterslip model: aseismic creep following coseismic events
-    # Spatial activation Φ(x,y) also controls aftershock localization
+    # Afterslip
+    # To decrease the total afterslip moment
+    # - Decrease reference velocity: afterslip_v_ref_m_yr
+    # - Reduce spatial extent
+    #   afterslip_spatial_threshold = 0.5  # Was 0.3 - larger threshold = smaller halo
+    #   afterslip_correlation_length_x_km = 5.0  # Was 7.5 - faster spatial decay
+    #   afterslip_correlation_length_z_km = 1.5  # Was 2.5
+    # - Increase magnitude threshold so that only large events generate afterslip
+    #   afterslip_M_min = 7.0
+    # - Increase minimum moment threshold to require more residual moment to participate
+    #   afterslip_m_critical = 0.1
+    # - Disable afterslip: afterslip_enabled = False
+
     afterslip_enabled = True  # Enable/disable afterslip physics
-    afterslip_v_ref_m_yr = 0.1  # Reference initial velocity (m/yr) at M_ref
+    afterslip_v_ref_m_yr = 0.01  # Reference initial velocity (m/yr) at M_ref
     afterslip_M_ref = 7.0  # Reference magnitude for velocity scaling
-    afterslip_beta = 0.33  # Magnitude scaling exponent (1/3 from MaxEnt theory)
+    afterslip_beta = 0.33  # Magnitude scaling exponent (geometric argument)
     afterslip_correlation_length_x_km = (
-        2.5  # Spatial correlation length ξ_x (along-strike)
+        10.001  # Spatial correlation length ξ_x (along-strike)
     )
-    afterslip_correlation_length_z_km = 2.5  # Spatial correlation length ξ_z (down-dip)
+    afterslip_correlation_length_z_km = (
+        10.001  # Spatial correlation length ξ_z (down-dip)
+    )
     afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
     afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
-    afterslip_duration_years = 10.0  # Track sequences for this many years
-    afterslip_m_critical = 0.01  # Minimum residual moment for afterslip (m)
+    afterslip_duration_years = 50.0  # Track sequences for this many years
+    afterslip_m_critical = 0.1  # Minimum residual moment for afterslip (m)
     afterslip_v_min = 1e-6  # Minimum velocity for numerical stability (m/yr)
-    afterslip_M_min = 6.0  # Only trigger afterslip for M ≥ this threshold [RAISED]
+    afterslip_M_min = 7.0  # Only trigger afterslip for M ≥ this threshold [RAISED]
     afterslip_spatial_threshold = (
         0.3  # Only allow afterslip where Phi > threshold [NEW]
     )
