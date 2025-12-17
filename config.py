@@ -77,11 +77,11 @@ class Config:
     # MaxEnt afterslip model: aseismic creep following coseismic events
     # Spatial activation Φ(x,y) also controls aftershock localization
     afterslip_enabled = True  # Enable/disable afterslip physics
-    afterslip_v_ref_m_yr = 0.5  # Reference initial velocity (m/yr) at M_ref
+    afterslip_v_ref_m_yr = 0.1  # Reference initial velocity (m/yr) at M_ref
     afterslip_M_ref = 7.0  # Reference magnitude for velocity scaling
     afterslip_beta = 0.33  # Magnitude scaling exponent (1/3 from MaxEnt theory)
     afterslip_correlation_length_x_km = (
-        7.5  # Spatial correlation length ξ_x (along-strike)
+        2.5  # Spatial correlation length ξ_x (along-strike)
     )
     afterslip_correlation_length_z_km = 2.5  # Spatial correlation length ξ_z (down-dip)
     afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
