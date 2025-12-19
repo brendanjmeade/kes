@@ -7,7 +7,7 @@ import numpy as np
 
 def initialize_moment(config, mesh):
     """
-    Initialize geometric moment distribution on fault with initial spin-up
+    Initialize slip deficit distribution on fault with initial spin-up
 
     Start partway through the earthquake cycle to avoid long initial transient
 
@@ -18,7 +18,7 @@ def initialize_moment(config, mesh):
 
     Returns:
     --------
-    m_current : array of geometric moment (m³) for each element
+    m_current : array of slip deficit (m) for each element
     slip_rate : array of slip rate (m/year) for each element
     """
     from moment import magnitude_to_seismic_moment, seismic_moment_to_magnitude
@@ -98,67 +98,64 @@ def initialize_moment(config, mesh):
     # Mid-cycle is at recurrence_time/2, so fraction of that is recurrence_time * (fraction/2)
     initial_time_equivalent = recurrence_time * config.spinup_fraction
 
-    # Accumulate moment for this equivalent time
-    m_current = slip_rate * config.element_area_m2 * initial_time_equivalent
+    # Accumulate slip deficit for this equivalent time (units: meters)
+    m_current = slip_rate * initial_time_equivalent
+
+    # Compute initial geometric moment for display (m³ = slip * area)
+    initial_geom_moment = np.sum(m_current * config.element_area_m2)
+    mid_cycle_geom_moment = geom_loading_rate * recurrence_time / 2
 
     print(f"  Recurrence time: {recurrence_time:.1f} years")
     print(
         f"  Starting at equivalent time: {initial_time_equivalent:.1f} years into cycle"
     )
-    print(f"  Initial total moment: {np.sum(m_current):.2e} m³")
-    print(f"  Mid-cycle moment: {geom_loading_rate * recurrence_time / 2:.2e} m³")
+    print(f"  Initial total slip deficit: {np.sum(m_current):.2e} m")
+    print(f"  Initial geometric moment: {initial_geom_moment:.2e} m³")
+    print(f"  Mid-cycle geometric moment: {mid_cycle_geom_moment:.2e} m³")
     print(
-        f"  Initial as % of mid-cycle: {100 * np.sum(m_current) / (geom_loading_rate * recurrence_time / 2):.1f}%"
+        f"  Initial as % of mid-cycle: {100 * initial_geom_moment / mid_cycle_geom_moment:.1f}%"
     )
 
     return m_current, slip_rate
 
 
-def accumulate_moment(m_current, slip_rate, element_areas, dt_years):
+def accumulate_moment(m_current, slip_rate, dt_years):
     """
-    Accumulate geometric moment over time step
+    Accumulate slip deficit over time step
 
     Parameters:
     -----------
-    m_current : current geometric moment (m)
+    m_current : current slip deficit (m)
     slip_rate : slip deficit rate (m/year)
-    element_areas : element areas (m²)
     dt_years : time step (years)
 
     Returns:
     --------
-    m_new : updated geometric moment
+    m_new : updated slip deficit (m)
     """
-    # Geometric moment = slip × area
+    # Slip deficit accumulates linearly with time
     delta_slip = slip_rate * dt_years
-    delta_moment = delta_slip * element_areas
-
-    m_new = m_current + delta_moment
+    m_new = m_current + delta_slip
 
     return m_new
 
 
-def release_moment(m_current, slip_distribution, element_areas):
+def release_moment(m_current, slip_distribution):
     """
-    Release moment from earthquake
+    Release slip deficit from earthquake
 
-    Ensures moment never goes negative
+    Ensures slip deficit never goes negative
 
     Parameters:
     -----------
-    m_current : current geometric moment (m)
+    m_current : current slip deficit (m)
     slip_distribution : coseismic slip on each element (m)
-    element_areas : element areas (m²)
 
     Returns:
     --------
-    m_new : updated geometric moment after release (m)
+    m_new : updated slip deficit after release (m)
     """
-    # Compute released slip per unit area (geometric moment density)
-    # slip has units of meters, which when divided by element area gives m³/m² = m
-    # But m_current has units of meters (geometric moment per unit area)
-    # So we directly subtract slip from m_current
-
+    # Subtract slip from slip deficit (both in meters)
     m_new = m_current - slip_distribution
 
     # Ensure non-negative (safety check, should already be satisfied by constraint)
