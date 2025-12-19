@@ -112,7 +112,7 @@ class Config:
 
     # Coseismic slip parameters
     slip_decay_rate = 2.0  # Exponential decay rate of slip from hypocenter
-    slip_heterogeneity = 0.3  # Random perturbation amplitude (±30%)
+    slip_heterogeneity = 0.01  # Random perturbation amplitude
 
     # GR scaling
     b_value = 1.0
