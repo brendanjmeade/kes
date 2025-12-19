@@ -222,9 +222,9 @@ def plot_evolution_overview(results, config):
     # Extract event times
     event_times = [e["time"] for e in event_history]
 
-    fig = plt.figure(figsize=(10, 8))  # Increased height for 4 panels
+    fig = plt.figure(figsize=(6, 6))
 
-    # Moment budget
+    # Moment budget data calculation (includes afterslip)
     event_history = results["event_history"]
 
     # Extract event times and create dense time array
@@ -235,6 +235,15 @@ def plot_evolution_overview(results, config):
         times = np.sort(np.unique(np.concatenate([regular_times, event_times])))
     else:
         times = np.linspace(0, config.duration_years, 1000)
+
+    # Get afterslip snapshots if available (for total release accounting)
+    afterslip_cumulative = None
+    afterslip_times = None
+    if "afterslip_snapshots" in results:
+        afterslip_cumulative = results["afterslip_snapshots"]
+        afterslip_times = results.get(
+            "times", np.linspace(0, config.duration_years, len(afterslip_cumulative))
+        )
 
     # These correctly account for all moment including initial spin-up
     if "cumulative_loading" in results and "cumulative_release" in results:
@@ -247,15 +256,28 @@ def plot_evolution_overview(results, config):
         # Linear loading over time (constant rate)
         cumulative_loading = times * (final_loading / final_time)
 
-        # Release: step function at each event time
-        cumulative_release = np.zeros_like(times)
+        # Coseismic release: step function at each event time
+        cumulative_coseismic = np.zeros_like(times)
         if len(event_history) > 0:
             event_times_array = np.array([e["time"] for e in event_history])
             event_moments_array = np.array([e["geom_moment"] for e in event_history])
 
             for i, t in enumerate(times):
                 mask = event_times_array <= t
-                cumulative_release[i] = np.sum(event_moments_array[mask])
+                cumulative_coseismic[i] = np.sum(event_moments_array[mask])
+
+        # Afterslip release: interpolate from snapshots
+        cumulative_afterslip = np.zeros_like(times)
+        if afterslip_cumulative is not None and len(afterslip_cumulative) > 0:
+            # Sum over spatial elements and convert to geometric moment
+            afterslip_total = (
+                np.sum(afterslip_cumulative, axis=1) * config.element_area_m2
+            )
+            # Interpolate to dense time array
+            cumulative_afterslip = np.interp(times, afterslip_times, afterslip_total)
+
+        # Total release = coseismic + afterslip
+        cumulative_release = cumulative_coseismic + cumulative_afterslip
     else:
         # Fallback: reconstruct from loading rate (old method, less accurate)
         print(
@@ -268,63 +290,69 @@ def plot_evolution_overview(results, config):
         )
         cumulative_loading = times * total_loading_rate
 
-        cumulative_release = np.zeros_like(times)
+        cumulative_coseismic = np.zeros_like(times)
         if len(event_history) > 0:
             event_times_array = np.array([e["time"] for e in event_history])
             event_moments_array = np.array([e["geom_moment"] for e in event_history])
 
             for i, t in enumerate(times):
                 mask = event_times_array <= t
-                cumulative_release[i] = np.sum(event_moments_array[mask])
+                cumulative_coseismic[i] = np.sum(event_moments_array[mask])
 
-    # Convert to seismic moment for plotting
-    cumulative_loading_seismic = cumulative_loading
-    cumulative_release_seismic = cumulative_release
-    moment_deficit = cumulative_loading_seismic - cumulative_release_seismic
-    moment_deficit_y_lim = 1.1 * np.max(np.abs(moment_deficit))
+        cumulative_afterslip = np.zeros_like(times)
+        cumulative_release = cumulative_coseismic
 
-    plt.subplot(4, 1, 1)
-    plt.fill_between(
+    # Compute afterslip fraction for labels
+    total_released = cumulative_release[-1]
+    afterslip_released = cumulative_afterslip[-1]
+    afterslip_fraction = (
+        afterslip_released / total_released if total_released > 0 else 0
+    )
+
+    # Top panel: Cumulative moment (loading vs release)
+    plt.subplot(3, 1, 1)
+    plt.plot(
         times,
-        moment_deficit,
-        0.0,
-        where=moment_deficit >= 0,
-        interpolate=True,
+        cumulative_loading,
+        "-",
+        color="tab:blue",
+        linewidth=0.5,
+        label="accumulation",
+    )
+    plt.plot(
+        times,
+        cumulative_release,
+        "-",
+        color="tab:red",
+        linewidth=0.5,
+        label="coseismic + afterslip",
+    )
+    plt.plot(
+        times,
+        cumulative_coseismic,
+        "-",
         color="tab:orange",
-        edgecolor=None,
-    )
-    plt.fill_between(
-        times,
-        moment_deficit,
-        0.0,
-        where=moment_deficit <= 0,
-        interpolate=True,
-        color="tab:cyan",
-        edgecolor=None,
-    )
-
-    plt.plot(
-        times,
-        moment_deficit,
-        "-",
-        linewidth=0.25,
-        color="k",
+        linewidth=0.5,
+        label=f"coseismic ({100 * (1 - afterslip_fraction):.0f}%)",
     )
     plt.plot(
         times,
-        np.zeros_like(times),
+        cumulative_afterslip,
         "-",
-        linewidth=0.25,
-        color="k",
+        color="tab:purple",
+        linewidth=0.5,
+        label=f"afterslip ({100 * afterslip_fraction:.0f}%)",
     )
 
-    plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("$m_\\mathrm{a} - m_\\mathrm{r}$ (m$^3$)", fontsize=FONTSIZE)
+    # plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
+    plt.ylabel("$m$ (m$^3$)", fontsize=FONTSIZE)
     plt.xlim(0, config.duration_years)
-    plt.ylim(-moment_deficit_y_lim, moment_deficit_y_lim)
+    plt.xticks([])
+    plt.ylim(bottom=5.0)
+    plt.legend(loc="upper left", fontsize=FONTSIZE - 2)
 
     # Expected events (1-year rolling window from λ(t))
-    plt.subplot(4, 1, 2)
+    plt.subplot(3, 1, 2)
 
     # Load λ(t) time series that was stored during simulation
     lambda_times = results["times"]
@@ -336,12 +364,12 @@ def plot_evolution_overview(results, config):
     if hasattr(lambda_values, "shape"):
         lambda_values = lambda_values[:]
 
-    # Convert λ(t) to incremental expected events per timestep
+    # Convert \rho(t) to incremental expected events per timestep
     dt_years = config.time_step_years
     lambda_incremental = lambda_values * dt_years  # Expected events per timestep
 
-    # Compute 10-year forward-looking rolling sum (for smoothing with yearly timesteps)
-    window_timesteps = 10  # 10-year window
+    # Compute N-year forward-looking rolling sum (for smoothing with yearly timesteps)
+    window_timesteps = 1  # 10-year window
     moving_window = np.zeros(len(lambda_values))
     for i in range(len(lambda_values)):
         # Sum next window_timesteps (or remaining timesteps at end)
@@ -367,14 +395,17 @@ def plot_evolution_overview(results, config):
         annual_times, annual_expected, 0, color="tab:pink", edgecolor=None, alpha=0.5
     )
 
-    plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("$\\lambda(t)$ (events/yr)", fontsize=FONTSIZE)
+    # plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
+    plt.ylabel("$\\rho(t)$ (events / yr)", fontsize=FONTSIZE)
     plt.xlim([0, config.duration_years])
-    plt.ylim([1e-1, 1e2])
-    plt.yscale("log")
+    # plt.ylim([1e-2, 1e1])
+    plt.ylim([0, 3])
+
+    plt.xticks([])
+    # plt.yscale("log")
 
     # Magnitude time series
-    plt.subplot(4, 1, 3)
+    plt.subplot(3, 1, 3)
     event_history = results["event_history"]
     times = [e["time"] for e in event_history]
     magnitudes = [e["magnitude"] for e in event_history]
@@ -403,9 +434,11 @@ def plot_evolution_overview(results, config):
     )
 
     plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("$\\mathrm{M}_\\mathrm{W}$", fontsize=FONTSIZE)
+    # plt.ylabel("$\\mathrm{M}_\\mathrm{W}$", fontsize=FONTSIZE)
+    plt.ylabel("$M$", fontsize=FONTSIZE)
+
     plt.xlim(0, config.duration_years)
-    plt.ylim(bottom=5.0)
+    plt.ylim([5, 8])
 
     # Save
     output_path = Path(config.output_dir) / "evolution_overview.png"
