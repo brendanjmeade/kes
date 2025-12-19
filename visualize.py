@@ -472,7 +472,10 @@ def plot_moment_snapshots(
     snapshot_times = results["snapshot_times"]
     mesh = results["mesh"]
     slip_rate = results["slip_rate"]  # m/year per element
-    release_snapshots = results["release_snapshots"]  # cumulative slip release (m)
+    release_snapshots = results["release_snapshots"]  # cumulative coseismic slip (m)
+    afterslip_snapshots = results.get(
+        "afterslip_snapshots", None
+    )  # cumulative afterslip (m)
 
     # Create grids for contourf plotting
     length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
@@ -489,12 +492,16 @@ def plot_moment_snapshots(
 
         actual_time = snapshot_times[time_idx]
 
-        # Get current cumulative release (m)
-        current_release = release_snapshots[time_idx]
+        # Get current cumulative release (coseismic + afterslip)
+        current_release = release_snapshots[time_idx].copy()
+        if afterslip_snapshots is not None:
+            current_release += afterslip_snapshots[time_idx]
 
         # Get previous release for delta calculation
         if time_idx > 0:
-            previous_release = release_snapshots[time_idx - 1]
+            previous_release = release_snapshots[time_idx - 1].copy()
+            if afterslip_snapshots is not None:
+                previous_release += afterslip_snapshots[time_idx - 1]
             delta_release = current_release - previous_release
             prev_time = snapshot_times[time_idx - 1]
         else:
@@ -507,23 +514,24 @@ def plot_moment_snapshots(
 
         # --- Upper panel: Delta (change in moment) ---
         delta_grid = delta_release.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
+        delta_scaled = delta_grid.T.copy()
         # Apply sqrt scaling for visualization
-        delta_scaled = np.sign(delta_grid.T) * np.abs(delta_grid.T) ** 0.5
+        # delta_scaled = np.sign(delta_grid.T) * np.abs(delta_grid.T) ** 0.5
 
         # delta_scaled[delta_scaled < 0.0] = np.nan
 
         # Use diverging colormap centered at 0 for delta
         delta_max = np.max(np.abs(delta_scaled))
         if delta_max > 0:
-            delta_levels = np.linspace(-delta_max, delta_max, 7)
+            delta_levels = np.linspace(-delta_max, delta_max, 21)
         else:
-            delta_levels = np.linspace(-1, 1, 7)
+            delta_levels = np.linspace(-1, 1, 21)
 
         cf1 = ax1.contourf(
             length_grid,
             depth_grid,
             delta_scaled,
-            cmap="plasma_r",
+            cmap="PRGn_r",
             levels=delta_levels,
             extend="both",
         )
@@ -534,7 +542,7 @@ def plot_moment_snapshots(
             colors="black",
             linewidths=0.25,
             linestyles="solid",
-            levels=delta_levels,  # Every other level for cleaner lines
+            levels=[0],
         )
         ax1.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
         ax1.set_title(
@@ -559,9 +567,9 @@ def plot_moment_snapshots(
         # Use diverging colormap centered at 0 for deficit
         deficit_max = np.max(np.abs(deficit_scaled))
         if deficit_max > 0:
-            deficit_levels = np.linspace(-deficit_max, deficit_max, 7)
+            deficit_levels = np.linspace(-deficit_max, deficit_max, 21)
         else:
-            deficit_levels = np.linspace(-1, 1, 7)
+            deficit_levels = np.linspace(-1, 1, 21)
 
         cf2 = ax2.contourf(
             length_grid,
@@ -578,7 +586,7 @@ def plot_moment_snapshots(
             colors="black",
             linewidths=0.25,
             linestyles="solid",
-            levels=deficit_levels,
+            levels=[0],
         )
         ax2.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
         ax2.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
