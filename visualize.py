@@ -112,13 +112,14 @@ def plot_moment_budget(results, config):
     )
 
     # Create figure
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6))
 
     # Top panel: Cumulative moment with breakdown
     ax1.plot(
         times,
         cumulative_loading_seismic,
         "b-",
+        color="tab:blue",
         linewidth=1.0,
         label="accumulation",
     )
@@ -126,6 +127,7 @@ def plot_moment_budget(results, config):
         times,
         cumulative_release_seismic,
         "r-",
+        color="tab:red",
         linewidth=1.0,
         label="coseismic + afterslip",
     )
@@ -134,27 +136,32 @@ def plot_moment_budget(results, config):
         ax1.plot(
             times,
             cumulative_coseismic_seismic,
-            "r--",
+            "r-",
+            color="tab:orange",
             linewidth=1,
             alpha=0.7,
             label=f"coseismic ({100 * (1 - afterslip_fraction):.0f}%)",
         )
-        # ax1.fill_between(
-        #     times,
-        #     cumulative_coseismic_seismic,
-        #     cumulative_release_seismic,
-        #     alpha=0.3,
-        #     color="orange",
-        #     label="moment release (afterslip)",
-        # )
 
     ax1.plot(
         times,
         cumulative_release_seismic - cumulative_coseismic_seismic,
-        "r:",
+        "r-",
+        color="tab:purple",
         linewidth=1,
         label=f"afterslip ({100 * afterslip_fraction:.0f}%)",
     )
+
+    # plt.fill_between(
+    #     times,
+    #     moment_deficit,
+    #     0.0,
+    #     where=moment_deficit >= 0,
+    #     interpolate=True,
+    #     color="tab:orange",
+    #     edgecolor=None,
+    # )
+
     ax1.set_xlabel("$t$ (years)")
     ax1.set_ylabel("cumulative geometric moment (m$^3$)")
     ax1.legend(loc="upper left")
@@ -172,9 +179,8 @@ def plot_moment_budget(results, config):
         linewidth=1,
         alpha=0.5,
     )
-    ax2.set_xlabel("Time (years)")
-    ax2.set_ylabel("geometric moment deficit (m$^3$)")
-    # ax2.set_title("Accumulated Moment Deficit (Loading - Total Release)")
+    ax2.set_xlabel("$t$ (years)")
+    ax2.set_ylabel("geometric moment budget (m$^3$)")
     ax2.grid(False)
 
     # Compute coupling coefficients
@@ -193,20 +199,8 @@ def plot_moment_budget(results, config):
             afterslip_released / total_released if total_released > 0 else 0
         )
 
-        info_text = (
-            f"Total Coupling: {total_coupling:.3f}\n"
-            f"Coseismic: {coseismic_coupling:.3f} ({100 * (1 - afterslip_fraction):.0f}%)\n"
-            f"Afterslip: {total_coupling - coseismic_coupling:.3f} ({100 * afterslip_fraction:.0f}%)"
-        )
-        ax2.text(
-            0.02,
-            0.95,
-            info_text,
-            transform=ax2.transAxes,
-            fontsize=FONTSIZE,
-            verticalalignment="top",
-            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
-        )
+    ax2.set_xlim([0, config.duration_years])
+    # ax2.set_ylim(bottom=0)
 
     plt.tight_layout()
     plt.savefig(f"{config.output_dir}/moment_budget.png", dpi=500)
