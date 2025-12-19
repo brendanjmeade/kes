@@ -9,14 +9,13 @@ import numpy as np
 class Config:
     """Simulation configuration"""
 
-    # === GEOMETRY ===
+    # Fault geometry
     fault_length_km = 200.0  # Along-strike length (km)
     fault_depth_km = 25.0  # Down-dip depth (km)
     element_size_km = 1.0  # Grid cell size (km)
     # element_size_km = 0.1  # Grid cell size (km)
 
-    # === MOMENT ACCUMULATION ===
-    # Background slip deficit rate
+    # Background moment (slip deficit) rate
     background_slip_rate_mm_yr = 10.0  # mm/year
 
     # Gaussian moment pulse(s) - list of dicts
@@ -29,17 +28,17 @@ class Config:
         }
     ]
 
-    # === PHYSICAL PARAMETERS ===
+    # The lone physical parameter
     shear_modulus_Pa = 3e10  # Pa (30 GPa)
 
-    # === MAGNITUDE-DEPENDENT SPATIAL PROBABILITY ===
-    gamma_min = 0.5  # Small events (SOC)
-    gamma_max = 1.5  # Large events (G-R)
+    # Magnitude dependent spatial probability
+    gamma_min = 0.0  # Small events anywhere
+    gamma_max = 1.5  # Large events need a pool of moment
     alpha_spatial = 0.35  # Decay rate
     M_min = 5.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
-    # === ADAPTIVE RATE CORRECTION ===
+    # Adaptive rate correction
     adaptive_correction_enabled = (
         True  # Enable adaptive correction (True = drives coupling toward 1.0)
     )
@@ -49,9 +48,9 @@ class Config:
     correction_factor_min = 0.1  # Minimum allowed correction factor
     correction_factor_max = 10.0  # Maximum allowed correction factor
 
-    # === OMORI AFTERSHOCK PARAMETERS ===
-    # Standard Omori-Utsu law: λ_aftershock(t) = K / (t + c)^p
-    # where K scales with mainshock magnitude: K = K_ref × 10^(alpha × (M - M_ref))
+    # Omori aftershock parameters
+    # Standard Omori-Utsu law: \rho_aftershock(t) = K / (t + c)^p
+    # where K scales with mainshock magnitude: K = K_ref × 10^(\alpha × (M - M_ref))
     omori_enabled = True  # Enable/disable aftershock sequences
     omori_p = 1.0  # Decay exponent (typically ~1.0)
     omori_c_years = 1.0 / 365.25  # Time offset in years (~0.00274 years = 1 day)
@@ -59,14 +58,16 @@ class Config:
     omori_M_ref = 6.0  # Reference magnitude for productivity
     omori_alpha = 0.8  # Magnitude scaling (Reasenberg & Jones 1989)
     omori_duration_years = (
-        10.0  # Only track aftershocks for this many years after mainshock
+        30.0  # Only track aftershocks for this many years after mainshock
     )
 
-    # === BACKGROUND RATE ===
-    lambda_background = 0.0  # Constant background rate (events/year, default disabled)
+    # Background rate of seismicity
+    lambda_background = 0.0
 
-    # === RANDOM PERTURBATIONS ===
-    perturbation_type = "none"  # Options: "none", "white_noise", "ornstein_uhlenbeck"
+    # Random perturbations
+    perturbation_type = (
+        "none"  # Maybe options: "none", "white_noise", "ornstein_uhlenbeck"
+    )
     perturbation_sigma = (
         0.01  # White noise: std dev (events/yr); OU: diffusion coefficient
     )
@@ -98,7 +99,7 @@ class Config:
     )
     afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
     afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
-    afterslip_duration_years = 50.0  # Track sequences for this many years
+    afterslip_duration_years = 100.0  # Track sequences for this many years
     afterslip_m_critical = 0.1  # Minimum residual moment for afterslip (m)
     afterslip_v_min = 1e-6  # Minimum velocity for numerical stability (m/yr)
     afterslip_M_min = 7.0  # Only trigger afterslip for M ≥ this threshold [RAISED]
@@ -106,24 +107,24 @@ class Config:
         0.3  # Only allow afterslip where Phi > threshold [NEW]
     )
 
-    # === MOMENT INITIALIZATION ===
+    # Moment initialization fraction
     spinup_fraction = 0.25  # Initialize with this fraction of mid-cycle moment (0.25 = recurrence_time/4)
 
-    # === SLIP DISTRIBUTION ===
+    # Coseismic slip parameters
     slip_decay_rate = 2.0  # Exponential decay rate of slip from hypocenter
     slip_heterogeneity = 0.3  # Random perturbation amplitude (±30%)
 
-    # === GUTENBERG-RICHTER ===
+    # GR scaling
     b_value = 1.0
 
-    # === SIMULATION ===
+    # Time
     duration_years = 1000.0  # Full simulation duration
     time_step_years = 1.0  # Time resolution (years)
 
     # Random seed for reproducibility
     random_seed = 42
 
-    # === OUTPUT ===
+    # Output
     output_dir = "results"
     output_hdf5 = "simulation_results.h5"
     hdf5_compression = (
