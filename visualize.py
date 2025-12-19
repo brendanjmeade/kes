@@ -34,13 +34,17 @@ def plot_moment_budget(results, config):
     afterslip_times = None
     if "afterslip_snapshots" in results:
         afterslip_cumulative = results["afterslip_snapshots"]
-        afterslip_times = results.get("times", np.linspace(0, config.duration_years, len(afterslip_cumulative)))
+        afterslip_times = results.get(
+            "times", np.linspace(0, config.duration_years, len(afterslip_cumulative))
+        )
 
     # These correctly account for all moment including initial spin-up
     if "cumulative_loading" in results and "cumulative_release" in results:
         # Get final values from simulator
         final_loading = results["cumulative_loading"]
-        final_release_total = results["cumulative_release"]  # Includes coseismic + afterslip
+        final_release_total = results[
+            "cumulative_release"
+        ]  # Includes coseismic + afterslip
 
         # Create time array for plotting
         final_time = config.duration_years
@@ -62,7 +66,9 @@ def plot_moment_budget(results, config):
         cumulative_afterslip = np.zeros_like(times)
         if afterslip_cumulative is not None and len(afterslip_cumulative) > 0:
             # Sum over spatial elements and convert to geometric moment
-            afterslip_total = np.sum(afterslip_cumulative, axis=1) * config.element_area_m2
+            afterslip_total = (
+                np.sum(afterslip_cumulative, axis=1) * config.element_area_m2
+            )
             # Interpolate to dense time array
             cumulative_afterslip = np.interp(times, afterslip_times, afterslip_total)
 
@@ -106,15 +112,15 @@ def plot_moment_budget(results, config):
         times,
         cumulative_loading_seismic,
         "b-",
-        linewidth=1.5,
-        label="Moment accumulation",
+        linewidth=1.0,
+        label="moment accumulation",
     )
     ax1.plot(
         times,
         cumulative_release_seismic,
         "r-",
-        linewidth=1.5,
-        label="Total release (coseismic + afterslip)",
+        linewidth=1.0,
+        label="moment release (coseismic + afterslip)",
     )
     # Show breakdown if afterslip is significant
     if np.max(cumulative_afterslip) > 0:
@@ -124,7 +130,7 @@ def plot_moment_budget(results, config):
             "r--",
             linewidth=1,
             alpha=0.7,
-            label="Coseismic only",
+            label="moment release (coseismic)",
         )
         ax1.fill_between(
             times,
@@ -132,13 +138,14 @@ def plot_moment_budget(results, config):
             cumulative_release_seismic,
             alpha=0.3,
             color="orange",
-            label="Afterslip contribution",
+            label="moment release (afterslip)",
         )
     ax1.set_xlabel("$t$ (years)")
-    ax1.set_ylabel("Cumulative Moment (N·m)")
-    ax1.set_title("Moment Budget: Loading vs. Release")
+    ax1.set_ylabel("cumulative geometric moment (N m)")
     ax1.legend(loc="upper left")
-    ax1.grid(True, alpha=0.3)
+    ax1.set_xlim([0, config.duration_years])
+    ax1.set_ylim(bottom=0)
+    ax1.grid(False)
 
     # Bottom panel: Moment deficit
     moment_deficit = cumulative_loading - cumulative_release
@@ -152,8 +159,8 @@ def plot_moment_budget(results, config):
     )
     ax2.set_xlabel("Time (years)")
     ax2.set_ylabel("Moment Deficit (m³)")
-    ax2.set_title("Accumulated Moment Deficit (Loading - Total Release)")
-    ax2.grid(True, alpha=0.3)
+    # ax2.set_title("Accumulated Moment Deficit (Loading - Total Release)")
+    ax2.grid(False)
 
     # Compute coupling coefficients
     max_time = times[-1]
@@ -164,13 +171,17 @@ def plot_moment_budget(results, config):
         afterslip_released = cumulative_afterslip[-1]
 
         total_coupling = total_released / total_loaded if total_loaded > 0 else 0
-        coseismic_coupling = coseismic_released / total_loaded if total_loaded > 0 else 0
-        afterslip_fraction = afterslip_released / total_released if total_released > 0 else 0
+        coseismic_coupling = (
+            coseismic_released / total_loaded if total_loaded > 0 else 0
+        )
+        afterslip_fraction = (
+            afterslip_released / total_released if total_released > 0 else 0
+        )
 
         info_text = (
             f"Total Coupling: {total_coupling:.3f}\n"
-            f"Coseismic: {coseismic_coupling:.3f} ({100*(1-afterslip_fraction):.0f}%)\n"
-            f"Afterslip: {total_coupling - coseismic_coupling:.3f} ({100*afterslip_fraction:.0f}%)"
+            f"Coseismic: {coseismic_coupling:.3f} ({100 * (1 - afterslip_fraction):.0f}%)\n"
+            f"Afterslip: {total_coupling - coseismic_coupling:.3f} ({100 * afterslip_fraction:.0f}%)"
         )
         ax2.text(
             0.02,
@@ -781,9 +792,9 @@ def plot_all(results, config):
     plot_evolution_overview(results, config)
 
     # Animation (can take a long time, may fail if ffmpeg not working)
-    try:
-        create_moment_animation(results, config)
-    except Exception as e:
-        print(f"\nWARNING: Animation creation failed: {e}")
-        print("  Try: brew reinstall ffmpeg")
-        print("  Other plots completed successfully.")
+    # try:
+    #     create_moment_animation(results, config)
+    # except Exception as e:
+    #     print(f"\nWARNING: Animation creation failed: {e}")
+    #     print("  Try: brew reinstall ffmpeg")
+    #     print("  Other plots completed successfully.")
