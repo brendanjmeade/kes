@@ -99,13 +99,20 @@ def plot_moment_budget(results, config):
         cumulative_release = cumulative_coseismic
 
     # Convert to seismic moment for plotting
-    cumulative_loading_seismic = cumulative_loading * config.shear_modulus_Pa
-    cumulative_release_seismic = cumulative_release * config.shear_modulus_Pa
-    cumulative_coseismic_seismic = cumulative_coseismic * config.shear_modulus_Pa
-    cumulative_afterslip_seismic = cumulative_afterslip * config.shear_modulus_Pa
+    cumulative_loading_seismic = cumulative_loading
+    cumulative_release_seismic = cumulative_release
+    cumulative_coseismic_seismic = cumulative_coseismic
+    cumulative_afterslip_seismic = cumulative_afterslip
+
+    total_released = cumulative_release[-1]
+    coseismic_released = cumulative_coseismic[-1]
+    afterslip_released = cumulative_afterslip[-1]
+    afterslip_fraction = (
+        afterslip_released / total_released if total_released > 0 else 0
+    )
 
     # Create figure
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
     # Top panel: Cumulative moment with breakdown
     ax1.plot(
@@ -113,14 +120,14 @@ def plot_moment_budget(results, config):
         cumulative_loading_seismic,
         "b-",
         linewidth=1.0,
-        label="moment accumulation",
+        label="accumulation",
     )
     ax1.plot(
         times,
         cumulative_release_seismic,
         "r-",
         linewidth=1.0,
-        label="moment release (coseismic + afterslip)",
+        label="coseismic + afterslip",
     )
     # Show breakdown if afterslip is significant
     if np.max(cumulative_afterslip) > 0:
@@ -130,18 +137,26 @@ def plot_moment_budget(results, config):
             "r--",
             linewidth=1,
             alpha=0.7,
-            label="moment release (coseismic)",
+            label=f"coseismic ({100 * (1 - afterslip_fraction):.0f}%)",
         )
-        ax1.fill_between(
-            times,
-            cumulative_coseismic_seismic,
-            cumulative_release_seismic,
-            alpha=0.3,
-            color="orange",
-            label="moment release (afterslip)",
-        )
+        # ax1.fill_between(
+        #     times,
+        #     cumulative_coseismic_seismic,
+        #     cumulative_release_seismic,
+        #     alpha=0.3,
+        #     color="orange",
+        #     label="moment release (afterslip)",
+        # )
+
+    ax1.plot(
+        times,
+        cumulative_release_seismic - cumulative_coseismic_seismic,
+        "r:",
+        linewidth=1,
+        label=f"afterslip ({100 * afterslip_fraction:.0f}%)",
+    )
     ax1.set_xlabel("$t$ (years)")
-    ax1.set_ylabel("cumulative geometric moment (N m)")
+    ax1.set_ylabel("cumulative geometric moment (m$^3$)")
     ax1.legend(loc="upper left")
     ax1.set_xlim([0, config.duration_years])
     ax1.set_ylim(bottom=0)
@@ -158,7 +173,7 @@ def plot_moment_budget(results, config):
         alpha=0.5,
     )
     ax2.set_xlabel("Time (years)")
-    ax2.set_ylabel("Moment Deficit (m³)")
+    ax2.set_ylabel("geometric moment deficit (m$^3$)")
     # ax2.set_title("Accumulated Moment Deficit (Loading - Total Release)")
     ax2.grid(False)
 
