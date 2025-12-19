@@ -297,6 +297,9 @@ def plot_evolution_overview(results, config):
 
     # Top panel: Cumulative moment (loading vs release)
     MOMENT_SCALE = 1e-10
+    mantissa, exp = f"{MOMENT_SCALE:e}".split("e")
+    # print(f"{float(mantissa):g} x 10^{{{int(exp)}}}")
+
     plt.subplot(3, 1, 1)
     plt.plot(
         times,
@@ -332,12 +335,16 @@ def plot_evolution_overview(results, config):
     )
 
     # plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
-    plt.ylabel("$m$ (m$^3$)", fontsize=FONTSIZE)
+    plt.ylabel(
+        f"$m$ (m$^3$ ${float(mantissa):g} \\times 10^{{{int(exp)}}}$)",
+        fontsize=FONTSIZE,
+    )
     plt.xlim(0, config.duration_years)
     # plt.xticks([])
     plt.gca().set_xticklabels([])
     plt.ylim([0, 5])
-    plt.yticks([0, 5])
+    # plt.yticks([0, 5])
+    plt.ylim(bottom=0)
     plt.gca().tick_params(axis="both", labelsize=FONTSIZE)
     plt.legend(loc="upper left", fontsize=FONTSIZE - 2)
 
