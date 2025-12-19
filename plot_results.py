@@ -40,11 +40,9 @@ def load_results(results_path):
     # Lazy load HDF5
     print(f"Loading results from: {results_path}")
     results = load_lazy_results(results_path)
-    print(f"  Events: {len(results['event_history'])}")
-    print(f"  Duration: {results['config'].duration_years} years")
-    print(
-        f"  Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}"
-    )
+    print(f"Events: {len(results['event_history'])}")
+    print(f"Duration: {results['config'].duration_years} years")
+    print(f"Grid: {results['config'].n_along_strike} x {results['config'].n_down_dip}")
 
     return results
 

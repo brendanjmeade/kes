@@ -8,7 +8,7 @@ from matplotlib.animation import FuncAnimation
 from pathlib import Path
 from tqdm import tqdm
 
-FONTSIZE = 10
+FONTSIZE = 8
 
 
 def plot_moment_budget(results, config):
@@ -296,10 +296,11 @@ def plot_evolution_overview(results, config):
     )
 
     # Top panel: Cumulative moment (loading vs release)
+    MOMENT_SCALE = 1e-10
     plt.subplot(3, 1, 1)
     plt.plot(
         times,
-        cumulative_loading,
+        cumulative_loading * MOMENT_SCALE,
         "-",
         color="tab:blue",
         linewidth=0.5,
@@ -307,7 +308,7 @@ def plot_evolution_overview(results, config):
     )
     plt.plot(
         times,
-        cumulative_release,
+        cumulative_release * MOMENT_SCALE,
         "-",
         color="tab:red",
         linewidth=0.5,
@@ -315,7 +316,7 @@ def plot_evolution_overview(results, config):
     )
     plt.plot(
         times,
-        cumulative_coseismic,
+        cumulative_coseismic * MOMENT_SCALE,
         "-",
         color="tab:orange",
         linewidth=0.5,
@@ -323,7 +324,7 @@ def plot_evolution_overview(results, config):
     )
     plt.plot(
         times,
-        cumulative_afterslip,
+        cumulative_afterslip * MOMENT_SCALE,
         "-",
         color="tab:purple",
         linewidth=0.5,
@@ -333,14 +334,17 @@ def plot_evolution_overview(results, config):
     # plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
     plt.ylabel("$m$ (m$^3$)", fontsize=FONTSIZE)
     plt.xlim(0, config.duration_years)
-    plt.xticks([])
-    plt.ylim(bottom=5.0)
+    # plt.xticks([])
+    plt.gca().set_xticklabels([])
+    plt.ylim([0, 5])
+    plt.yticks([0, 5])
+    plt.gca().tick_params(axis="both", labelsize=FONTSIZE)
     plt.legend(loc="upper left", fontsize=FONTSIZE - 2)
 
     # Expected events (1-year rolling window from λ(t))
     plt.subplot(3, 1, 2)
 
-    # Load λ(t) time series that was stored during simulation
+    # Load \rho(t) time series that was stored during simulation
     lambda_times = results["times"]
     lambda_values = results["lambda_history"]
 
@@ -386,9 +390,10 @@ def plot_evolution_overview(results, config):
     plt.xlim([0, config.duration_years])
     # plt.ylim([1e-2, 1e1])
     plt.ylim([0, 3])
-
-    plt.xticks([])
-    # plt.yscale("log")
+    plt.yticks([0, 1, 2, 3])
+    # plt.xticklabels([])
+    plt.gca().set_xticklabels([])
+    plt.gca().tick_params(axis="both", labelsize=FONTSIZE)
 
     # Magnitude time series
     plt.subplot(3, 1, 3)
@@ -422,9 +427,10 @@ def plot_evolution_overview(results, config):
     plt.xlabel("$t$ (years)", fontsize=FONTSIZE)
     # plt.ylabel("$\\mathrm{M}_\\mathrm{W}$", fontsize=FONTSIZE)
     plt.ylabel("$M$", fontsize=FONTSIZE)
-
     plt.xlim(0, config.duration_years)
     plt.ylim([5, 8])
+    plt.yticks([5, 6, 7, 8])
+    plt.gca().tick_params(axis="both", labelsize=FONTSIZE)
 
     # Save
     output_path = Path(config.output_dir) / "evolution_overview.png"
@@ -439,8 +445,8 @@ def plot_moment_snapshots(results, config, times_to_plot=None, plot_type="defici
     Plot moment distribution at multiple time slices
 
     Uses spatial reconstruction following moment_budget.png pattern:
-    - spatial_loading = slip_rate × area × time (always increases)
-    - spatial_release = cumulative_release × area (step increases at earthquakes)
+    - spatial_loading = slip_rate x  area x time (always increases)
+    - spatial_release = cumulative_release x area (step increases at earthquakes)
     - spatial_deficit = loading - release (shows earthquake drops)
 
     Parameters:
