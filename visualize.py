@@ -76,9 +76,7 @@ def plot_moment_budget(results, config):
         cumulative_release = cumulative_coseismic + cumulative_afterslip
     else:
         # Fallback: reconstruct from loading rate (old method, less accurate)
-        print(
-            "WARNING: Using fallback loading calculation (cumulative values not in results)"
-        )
+        print("Using fallback loading calculation (cumulative values not in results)")
         total_loading_rate = (
             config.background_slip_rate_m_yr
             * config.n_elements
@@ -118,7 +116,7 @@ def plot_moment_budget(results, config):
     ax1.plot(
         times,
         cumulative_loading_seismic,
-        "b-",
+        "-",
         color="tab:blue",
         linewidth=1.0,
         label="accumulation",
@@ -126,7 +124,7 @@ def plot_moment_budget(results, config):
     ax1.plot(
         times,
         cumulative_release_seismic,
-        "r-",
+        "-",
         color="tab:red",
         linewidth=1.0,
         label="coseismic + afterslip",
@@ -136,7 +134,7 @@ def plot_moment_budget(results, config):
         ax1.plot(
             times,
             cumulative_coseismic_seismic,
-            "r-",
+            "-",
             color="tab:orange",
             linewidth=1,
             alpha=0.7,
@@ -146,21 +144,11 @@ def plot_moment_budget(results, config):
     ax1.plot(
         times,
         cumulative_release_seismic - cumulative_coseismic_seismic,
-        "r-",
+        "-",
         color="tab:purple",
         linewidth=1,
         label=f"afterslip ({100 * afterslip_fraction:.0f}%)",
     )
-
-    # plt.fill_between(
-    #     times,
-    #     moment_deficit,
-    #     0.0,
-    #     where=moment_deficit >= 0,
-    #     interpolate=True,
-    #     color="tab:orange",
-    #     edgecolor=None,
-    # )
 
     ax1.set_xlabel("$t$ (years)")
     ax1.set_ylabel("cumulative geometric moment (m$^3$)")
@@ -280,9 +268,7 @@ def plot_evolution_overview(results, config):
         cumulative_release = cumulative_coseismic + cumulative_afterslip
     else:
         # Fallback: reconstruct from loading rate (old method, less accurate)
-        print(
-            "WARNING: Using fallback loading calculation (cumulative values not in results)"
-        )
+        print("Using fallback loading calculation (cumulative values not in results)")
         total_loading_rate = (
             config.background_slip_rate_m_yr
             * config.n_elements
@@ -616,7 +602,7 @@ def create_moment_animation(results, config):
     Uses symmetric colorbar with fixed limits from extrema
     Reconstructs deficit same way as plot_moment_snapshots for consistency
     """
-    print("Starting animation!!!")
+    print("Starting animation")
 
     def scale(values):
         power = 0.2
@@ -738,7 +724,7 @@ def create_moment_animation(results, config):
     # Setup progress bar for annual frames
     n_frames = len(annual_indices)
     print(
-        f"\nCreating moment deficit animation ({n_frames} annual frames from {len(snapshot_times)} snapshots)..."
+        f"\nCreating moment deficit animation ({n_frames} annual frames from {len(snapshot_times)} snapshots)"
     )
     pbar = tqdm(total=n_frames, desc="Rendering frames")
 
@@ -826,7 +812,7 @@ def plot_all(results, config):
     """
     Generate all plots
     """
-    print("\nGenerating plots...")
+    print("\nGenerating figures")
 
     plot_moment_snapshots(results, config)
     plot_cumulative_slip_map(results, config)
@@ -837,6 +823,6 @@ def plot_all(results, config):
     # try:
     #     create_moment_animation(results, config)
     # except Exception as e:
-    #     print(f"\nWARNING: Animation creation failed: {e}")
+    #     print(f"\nAnimation creation failed: {e}")
     #     print("  Try: brew reinstall ffmpeg")
     #     print("  Other plots completed successfully.")

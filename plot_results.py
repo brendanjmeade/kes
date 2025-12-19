@@ -37,11 +37,9 @@ def load_results(results_path):
     if not results_path.exists():
         raise FileNotFoundError(f"Results file not found: {results_path}")
 
+    # Lazy load HDF5
     print(f"Loading results from: {results_path}")
-
-    # Load HDF5 with lazy loading
     results = load_lazy_results(results_path)
-    print("Results loaded successfully from HDF5!")
     print(f"  Events: {len(results['event_history'])}")
     print(f"  Duration: {results['config'].duration_years} years")
     print(
@@ -62,18 +60,12 @@ def main():
         # Default path
         results_path = Path("results/simulation_results.h5")
 
-    print("\nVISUALIZATION (plot_results.py)")
-
     # Load results
     results = load_results(results_path)
     config = results["config"]
 
     # Generate all plots
-    print("\nGENERATING PLOTS")
     plot_all(results, config)
-
-    print("\nVISUALIZATION COMPLETE")
-    print(f"Plots saved to: {config.output_dir}/")
 
 
 if __name__ == "__main__":
