@@ -447,35 +447,163 @@ def plot_evolution_overview(results, config):
     return fig
 
 
-def plot_moment_snapshots(results, config, times_to_plot=None, plot_type="deficit"):
+def plot_moment_snapshots(
+    results, config, times_to_plot=None, plot_type="deficit", time_idx=None
+):
     """
-    Plot moment distribution at multiple time slices
+    Plot moment distribution at specific time(s)
 
-    Uses spatial reconstruction following moment_budget.png pattern:
-    - spatial_loading = slip_rate x  area x time (always increases)
-    - spatial_release = cumulative_release x area (step increases at earthquakes)
-    - spatial_deficit = loading - release (shows earthquake drops)
+    Two modes:
+    1. If time_idx is None (default): Plot 6 evenly spaced time slices in vertical panels
+    2. If time_idx is provided: Plot 2-panel figure showing:
+       - Upper panel: Change in moment from previous timestep to current
+       - Lower panel: Cumulative moment up to current timestep
 
     Parameters:
     -----------
+    times_to_plot : list, optional
+        Specific times to plot (used when time_idx is None)
     plot_type : str
-        "deficit" - plot moment deficit (reconstructed: loading - release)
+        "deficit" - plot moment deficit (loading - release)
         "release" - plot cumulative moment release only
+    time_idx : int, optional
+        Specific time index for 2-panel delta/cumulative view
     """
     snapshot_times = results["snapshot_times"]
     mesh = results["mesh"]
     slip_rate = results["slip_rate"]  # m/year per element
     release_snapshots = results["release_snapshots"]  # cumulative slip release (m)
 
+    # Create grids for contourf plotting
+    length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
+    depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
+    length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
+
+    # MODE 2: Single time index with delta/cumulative panels
+    if time_idx is not None:
+        # Validate time_idx
+        if time_idx < 0 or time_idx >= len(snapshot_times):
+            raise ValueError(
+                f"time_idx {time_idx} out of range [0, {len(snapshot_times) - 1}]"
+            )
+
+        actual_time = snapshot_times[time_idx]
+
+        # Get current cumulative release (m)
+        current_release = release_snapshots[time_idx]
+
+        # Get previous release for delta calculation
+        if time_idx > 0:
+            previous_release = release_snapshots[time_idx - 1]
+            delta_release = current_release - previous_release
+            prev_time = snapshot_times[time_idx - 1]
+        else:
+            # First timestep: delta is just the current value
+            delta_release = current_release
+            prev_time = 0.0
+
+        # Create 2-panel figure
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 3))
+
+        # --- Upper panel: Delta (change in moment) ---
+        delta_grid = delta_release.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
+        # Apply sqrt scaling for visualization
+        delta_scaled = np.sign(delta_grid.T) * np.abs(delta_grid.T) ** 0.5
+
+        # delta_scaled[delta_scaled < 0.0] = np.nan
+
+        # Use diverging colormap centered at 0 for delta
+        delta_max = np.max(np.abs(delta_scaled))
+        if delta_max > 0:
+            delta_levels = np.linspace(-delta_max, delta_max, 7)
+        else:
+            delta_levels = np.linspace(-1, 1, 7)
+
+        cf1 = ax1.contourf(
+            length_grid,
+            depth_grid,
+            delta_scaled,
+            cmap="plasma_r",
+            levels=delta_levels,
+            extend="both",
+        )
+        ax1.contour(
+            length_grid,
+            depth_grid,
+            delta_scaled,
+            colors="black",
+            linewidths=0.25,
+            linestyles="solid",
+            levels=delta_levels,  # Every other level for cleaner lines
+        )
+        ax1.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+        ax1.set_title(
+            f"$\\dot{{{{m}}}}_\\mathrm{{{{d}}}}$ ($t$ = {prev_time:.1f} to {actual_time:.1f} years)",
+            fontsize=FONTSIZE,
+        )
+        ax1.invert_yaxis()
+        ax1.set_xticklabels([])
+        ax1.tick_params(axis="both", labelsize=FONTSIZE)
+        cbar1 = plt.colorbar(cf1, ax=ax1)
+        cbar1.set_label("$\\Delta m^{0.5}$ (m$^{1.5}$)", fontsize=FONTSIZE - 2)
+
+        # --- Lower panel: Cumulative moment deficit (loading - release) ---
+        # Loading: accumulates linearly with time
+        spatial_loading = slip_rate * actual_time  # m per element
+        # Deficit = loading - release (can be positive or negative)
+        deficit = spatial_loading - current_release
+        deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
+        # Apply sqrt scaling preserving sign
+        deficit_scaled = np.sign(deficit_grid.T) * np.abs(deficit_grid.T) ** 0.5
+
+        # Use diverging colormap centered at 0 for deficit
+        deficit_max = np.max(np.abs(deficit_scaled))
+        if deficit_max > 0:
+            deficit_levels = np.linspace(-deficit_max, deficit_max, 7)
+        else:
+            deficit_levels = np.linspace(-1, 1, 7)
+
+        cf2 = ax2.contourf(
+            length_grid,
+            depth_grid,
+            deficit_scaled,
+            cmap="coolwarm",
+            levels=deficit_levels,
+            extend="both",
+        )
+        ax2.contour(
+            length_grid,
+            depth_grid,
+            deficit_scaled,
+            colors="black",
+            linewidths=0.25,
+            linestyles="solid",
+            levels=deficit_levels,
+        )
+        ax2.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+        ax2.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+        ax2.set_title(
+            f"$m_\\mathrm{{{{d}}}}$ ($t$ = {actual_time:.1f} years)", fontsize=FONTSIZE
+        )
+        ax2.invert_yaxis()
+        ax2.tick_params(axis="both", labelsize=FONTSIZE)
+        cbar2 = plt.colorbar(cf2, ax=ax2)
+        cbar2.set_label("$m^{0.5}$ (m$^{1.5}$)", fontsize=FONTSIZE - 2)
+
+        plt.tight_layout()
+
+        # Save with time index in filename
+        output_path = Path(config.output_dir) / f"moment_snapshot_t{time_idx:04d}.png"
+        plt.savefig(output_path, dpi=500, bbox_inches="tight")
+        print(f"Saved: {output_path}")
+
+        return fig
+
+    # MODE 1: Original behavior - multiple time slices
     if times_to_plot is None:
         # Default: plot 6 evenly spaced times
         indices = np.linspace(0, len(snapshot_times) - 1, 6, dtype=int)
         times_to_plot = [snapshot_times[i] for i in indices]
-
-    # Create grids for contourf plotting (matching cumulative_slip style)
-    length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
-    depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
-    length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
 
     n_plots = len(times_to_plot)
     fig, axes = plt.subplots(6, 1, figsize=(15, 10))
@@ -507,8 +635,6 @@ def plot_moment_snapshots(results, config, times_to_plot=None, plot_type="defici
 
         # Apply log transform (like cumulative_slip.png)
         to_plot = np.sign(moment_grid.T) * np.abs(moment_grid.T) ** (0.5)
-        # min_val = np.nanmin(to_plot)
-        # to_plot[~np.isfinite(to_plot)] = min_val
 
         # Plot with contourf + contour (matching cumulative_slip style)
         ax = axes[i]
@@ -538,7 +664,6 @@ def plot_moment_snapshots(results, config, times_to_plot=None, plot_type="defici
         ax.invert_yaxis()
 
         cbar = plt.colorbar(cbar_plot, ax=ax)
-        # cbar.set_label("log$_{10}$ moment (m³)", fontsize=FONTSIZE)
 
     plt.tight_layout()
 
@@ -587,8 +712,9 @@ def plot_cumulative_slip_map(results, config):
         length_grid,
         depth_grid,
         to_plot,
-        colors="black",  # solid black lines
-        linewidths=0.5,  # adjust line thickness as needed
+        colors="black",
+        linewidths=0.25,
+        linestyles="solid",
     )
 
     ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
@@ -831,6 +957,11 @@ def plot_all(results, config):
     plot_cumulative_slip_map(results, config)
     plot_moment_budget(results, config)
     plot_evolution_overview(results, config)
+
+    # Snapshots
+    plot_moment_snapshots(results, config, time_idx=469)
+    plot_moment_snapshots(results, config, time_idx=470)
+    plot_moment_snapshots(results, config, time_idx=471)
 
     # Animation (can take a long time, may fail if ffmpeg not working)
     # try:
