@@ -543,7 +543,7 @@ def plot_moment_snapshots(
         )
         ax1.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
         ax1.set_title(
-            f"$\\dot{{{{m}}}}_\\mathrm{{{{d}}}}$ ($t$ = {prev_time:.1f} to {actual_time:.1f} years)",
+            f"$\\dot{{{{m}}}}_\\mathrm{{{{d}}}}$ ($t$ = {actual_time:.0f})",
             fontsize=FONTSIZE,
         )
         ax1.invert_yaxis()
@@ -552,7 +552,7 @@ def plot_moment_snapshots(
         ax1.tick_params(axis="both", labelsize=FONTSIZE)
         ax1.set_aspect("equal", adjustable="box")
         cbar1 = plt.colorbar(cf1, ax=ax1)
-        cbar1.set_label("$\\Delta m^{0.5}$ (m$^{1.5}$)", fontsize=FONTSIZE - 2)
+        cbar1.set_label("$\\dot{{{m}}}$ (m$^3$ / year)", fontsize=FONTSIZE - 2)
         cbar1.ax.tick_params(labelsize=FONTSIZE - 2)
         cbar1.ax.yaxis.set_major_formatter(
             mticker.FuncFormatter(lambda x, pos: f"{x:.2f}")
@@ -593,14 +593,14 @@ def plot_moment_snapshots(
         ax2.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
         ax2.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
         ax2.set_title(
-            f"$m_\\mathrm{{{{d}}}}$ ($t$ = {actual_time:.1f} years)", fontsize=FONTSIZE
+            f"$m_\\mathrm{{{{d}}}}$ ($t$ = {actual_time:.0f})", fontsize=FONTSIZE
         )
         ax2.invert_yaxis()
         ax2.set_yticks([0, 25])
         ax2.tick_params(axis="both", labelsize=FONTSIZE)
         ax2.set_aspect("equal", adjustable="box")
         cbar2 = plt.colorbar(cf2, ax=ax2)
-        cbar2.set_label("$m^{0.5}$ (m$^{1.5}$)", fontsize=FONTSIZE - 2)
+        cbar2.set_label("$m$ (m$^{3}$)", fontsize=FONTSIZE - 2)
         cbar2.ax.tick_params(labelsize=FONTSIZE - 2)
         cbar2.ax.yaxis.set_major_formatter(
             mticker.FuncFormatter(lambda x, pos: f"{x:.2f}")
