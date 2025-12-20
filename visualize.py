@@ -963,6 +963,103 @@ def create_moment_animation(results, config):
     return output_path
 
 
+def plot_loading_and_earthquakes(results, config):
+    """
+    Plot background loading rate with earthquake locations overlaid
+
+    Creates a filled contour plot of the spatial loading rate (slip rate)
+    with circles representing earthquake locations. Circle areas are
+    proportional to coseismic geometric moment.
+
+    Parameters:
+    -----------
+    results : dict
+        Simulation results containing event_history, mesh, slip_rate
+    config : Config
+        Simulation configuration
+    """
+    event_history = results["event_history"]
+    mesh = results["mesh"]
+    slip_rate = results["slip_rate"]  # m/year per element
+
+    # Create grids for contourf plotting
+    length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
+    depth_vec = np.linspace(0, config.fault_depth_km, config.n_down_dip)
+    length_grid, depth_grid = np.meshgrid(length_vec, depth_vec)
+
+    # Reshape slip_rate to 2D grid and convert to mm/yr for display
+    slip_rate_grid = slip_rate.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
+    slip_rate_mm_yr = slip_rate_grid.T * 1000  # Convert m/yr to mm/yr
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 3))
+
+    # Plot loading rate as filled contours
+    cf = ax.contourf(
+        length_grid,
+        depth_grid,
+        slip_rate_mm_yr,
+        cmap="YlOrRd",
+        levels=20,
+    )
+
+    # Overlay earthquakes as circles
+    if len(event_history) > 0:
+        # Extract earthquake locations and moments
+        x_coords = np.array([e["hypocenter_x_km"] for e in event_history])
+        z_coords = np.array([e["hypocenter_z_km"] for e in event_history])
+        geom_moments = np.array([e["geom_moment"] for e in event_history])
+
+        # Scale circle sizes: radius proportional to moment
+        # Use reference scaling: M6 earthquake gives reasonable visible circle
+        # Typical M6 has geom_moment ~ 1e6 m^3
+        moment_ref = 1e6  # Reference moment for scaling
+        radius_ref = 5  # Reference radius in points
+
+        # Radius \propto moment, so area \propto moment^2
+        # size (area in points^2) = pi * radius^2 = pi * (radius_ref * moment/moment_ref)^2
+        radii = radius_ref * (geom_moments / moment_ref)
+        sizes = np.pi * radii**2
+
+        # Clip for visibility
+        # sizes = np.clip(sizes, 1, 20000000)
+        sizes *= 0.000001
+
+        # Plot earthquakes as scatter with transparency
+        ax.scatter(
+            x_coords,
+            z_coords,
+            s=sizes,
+            c=None,
+            alpha=0.3,
+            edgecolors="black",
+            linewidths=0.25,
+            zorder=10,
+        )
+
+    # Formatting
+    ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+    ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
+    ax.invert_yaxis()
+    ax.set_yticks([0, 12.5, 25])
+    ax.tick_params(axis="both", labelsize=FONTSIZE)
+    ax.set_aspect("equal", adjustable="box")
+
+    # Colorbar
+    cbar = plt.colorbar(cf, ax=ax)
+    cbar.set_label("Loading rate (mm/yr)", fontsize=FONTSIZE)
+    cbar.ax.tick_params(labelsize=FONTSIZE - 2)
+
+    plt.tight_layout()
+
+    # Save
+    output_path = Path(config.output_dir) / "loading_and_earthquakes.png"
+    plt.savefig(output_path, dpi=500, bbox_inches="tight")
+    print(f"Saved: {output_path}")
+
+    return fig
+
+
 def plot_all(results, config):
     """
     Generate all plots
@@ -973,6 +1070,7 @@ def plot_all(results, config):
     plot_cumulative_slip_map(results, config)
     plot_moment_budget(results, config)
     plot_evolution_overview(results, config)
+    plot_loading_and_earthquakes(results, config)
 
     # Snapshots
     plot_moment_snapshots(results, config, time_idx=151)

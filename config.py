@@ -24,7 +24,7 @@ class Config:
             "center_x_km": 100.0,  # Along-strike position
             "center_z_km": 12.5,  # Down-dip position
             "sigma_km": 20.0,  # Width of Gaussian
-            "amplitude_mm_yr": 0.0,  # Additional slip rate at center
+            "amplitude_mm_yr": 20.0,  # Additional slip rate at center
         }
     ]
 
