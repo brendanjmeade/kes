@@ -5,6 +5,7 @@ Visualization functions
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import matplotlib.ticker as mticker
 from pathlib import Path
 from tqdm import tqdm
 
@@ -512,13 +513,9 @@ def plot_moment_snapshots(
         # Create 2-panel figure
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 3))
 
-        # --- Upper panel: Delta (change in moment) ---
+        # Change in moment
         delta_grid = delta_release.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
         delta_scaled = delta_grid.T.copy()
-        # Apply sqrt scaling for visualization
-        # delta_scaled = np.sign(delta_grid.T) * np.abs(delta_grid.T) ** 0.5
-
-        # delta_scaled[delta_scaled < 0.0] = np.nan
 
         # Use diverging colormap centered at 0 for delta
         delta_max = np.max(np.abs(delta_scaled))
@@ -540,7 +537,7 @@ def plot_moment_snapshots(
             depth_grid,
             delta_scaled,
             colors="black",
-            linewidths=0.25,
+            linewidths=0.50,
             linestyles="solid",
             levels=[0],
         )
@@ -550,19 +547,24 @@ def plot_moment_snapshots(
             fontsize=FONTSIZE,
         )
         ax1.invert_yaxis()
+        ax1.set_yticks([0, 25])
         ax1.set_xticklabels([])
         ax1.tick_params(axis="both", labelsize=FONTSIZE)
+        ax1.set_aspect("equal", adjustable="box")
         cbar1 = plt.colorbar(cf1, ax=ax1)
         cbar1.set_label("$\\Delta m^{0.5}$ (m$^{1.5}$)", fontsize=FONTSIZE - 2)
+        cbar1.ax.tick_params(labelsize=FONTSIZE - 2)
+        cbar1.ax.yaxis.set_major_formatter(
+            mticker.FuncFormatter(lambda x, pos: f"{x:.2f}")
+        )
 
-        # --- Lower panel: Cumulative moment deficit (loading - release) ---
+        # Cumulative moment deficit
         # Loading: accumulates linearly with time
         spatial_loading = slip_rate * actual_time  # m per element
         # Deficit = loading - release (can be positive or negative)
         deficit = spatial_loading - current_release
         deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"])
-        # Apply sqrt scaling preserving sign
-        deficit_scaled = np.sign(deficit_grid.T) * np.abs(deficit_grid.T) ** 0.5
+        deficit_scaled = deficit_grid.T
 
         # Use diverging colormap centered at 0 for deficit
         deficit_max = np.max(np.abs(deficit_scaled))
@@ -584,7 +586,7 @@ def plot_moment_snapshots(
             depth_grid,
             deficit_scaled,
             colors="black",
-            linewidths=0.25,
+            linewidths=0.5,
             linestyles="solid",
             levels=[0],
         )
@@ -594,9 +596,15 @@ def plot_moment_snapshots(
             f"$m_\\mathrm{{{{d}}}}$ ($t$ = {actual_time:.1f} years)", fontsize=FONTSIZE
         )
         ax2.invert_yaxis()
+        ax2.set_yticks([0, 25])
         ax2.tick_params(axis="both", labelsize=FONTSIZE)
+        ax2.set_aspect("equal", adjustable="box")
         cbar2 = plt.colorbar(cf2, ax=ax2)
         cbar2.set_label("$m^{0.5}$ (m$^{1.5}$)", fontsize=FONTSIZE - 2)
+        cbar2.ax.tick_params(labelsize=FONTSIZE - 2)
+        cbar2.ax.yaxis.set_major_formatter(
+            mticker.FuncFormatter(lambda x, pos: f"{x:.2f}")
+        )
 
         plt.tight_layout()
 
