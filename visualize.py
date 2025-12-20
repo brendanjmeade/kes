@@ -975,9 +975,9 @@ def plot_all(results, config):
     plot_evolution_overview(results, config)
 
     # Snapshots
-    plot_moment_snapshots(results, config, time_idx=469)
-    plot_moment_snapshots(results, config, time_idx=470)
-    plot_moment_snapshots(results, config, time_idx=471)
+    plot_moment_snapshots(results, config, time_idx=151)
+    plot_moment_snapshots(results, config, time_idx=152)
+    plot_moment_snapshots(results, config, time_idx=153)
 
     # Animation (can take a long time, may fail if ffmpeg not working)
     # try:
