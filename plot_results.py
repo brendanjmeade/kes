@@ -11,9 +11,49 @@ If no path is provided, defaults to results/simulation_results.h5
 """
 
 import sys
+import numpy as np
 from pathlib import Path
 from visualize import plot_all
 from hdf5_io import load_lazy_results
+
+
+def print_largest_events(results, n_events=20):
+    """
+    Print the n largest events sorted by magnitude
+
+    Parameters:
+    -----------
+    results : dict
+        Simulation results containing event_history and snapshot_times
+    n_events : int
+        Number of events to print (default 20)
+    """
+    event_history = results["event_history"]
+    snapshot_times = results["snapshot_times"]
+
+    if len(event_history) == 0:
+        print("No events to display")
+        return
+
+    # Get magnitudes, times, and find snapshot indices
+    events = []
+    for i, e in enumerate(event_history):
+        time = e["time"]
+        mag = e["magnitude"]
+        snapshot_idx = np.argmin(np.abs(np.array(snapshot_times) - time))
+        events.append((i, time, mag, snapshot_idx))
+
+    # Sort by magnitude (descending)
+    events_sorted = sorted(events, key=lambda x: x[2], reverse=True)
+
+    # Print header
+    print(f"\nLargest {min(n_events, len(events_sorted))} events")
+    print(f"{'Rank':<6} {'Event#':<8} {'Time (yr)':<12} {'Magnitude':<12} {'idx'}")
+
+    for rank, (event_idx, time, mag, snapshot_idx) in enumerate(
+        events_sorted[:n_events], 1
+    ):
+        print(f"{rank:<6} {event_idx:<8} {time:<12.2f} M{mag:<11.2f} {snapshot_idx}")
 
 
 def load_results(results_path):
@@ -61,6 +101,9 @@ def main():
     # Load results
     results = load_results(results_path)
     config = results["config"]
+
+    # Print largest events
+    print_largest_events(results, n_events=20)
 
     # Generate all plots
     plot_all(results, config)
