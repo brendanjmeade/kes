@@ -992,7 +992,7 @@ def plot_loading_and_earthquakes(results, config):
     slip_rate_mm_yr = slip_rate_grid.T * 1000  # Convert m/yr to mm/yr
 
     # Create figure
-    fig, ax = plt.subplots(figsize=(12, 3))
+    fig, ax = plt.subplots(figsize=(10, 3))
 
     # Plot loading rate as filled contours
     cf = ax.contourf(
@@ -1026,7 +1026,7 @@ def plot_loading_and_earthquakes(results, config):
             z_coords,
             s=sizes,
             c="gray",
-            alpha=0.2,
+            alpha=0.4,
             edgecolors="black",
             linewidths=0.25,
             zorder=10,
