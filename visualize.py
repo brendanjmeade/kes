@@ -1010,28 +1010,23 @@ def plot_loading_and_earthquakes(results, config):
         z_coords = np.array([e["hypocenter_z_km"] for e in event_history])
         geom_moments = np.array([e["geom_moment"] for e in event_history])
 
-        # Scale circle sizes: radius proportional to moment
+        # Scale circle sizes: area proportional to moment
         # Use reference scaling: M6 earthquake gives reasonable visible circle
         # Typical M6 has geom_moment ~ 1e6 m^3
         moment_ref = 1e6  # Reference moment for scaling
-        radius_ref = 5  # Reference radius in points
+        size_ref = 20  # Reference area in points^2
 
-        # Radius \propto moment, so area \propto moment^2
-        # size (area in points^2) = pi * radius^2 = pi * (radius_ref * moment/moment_ref)^2
-        radii = radius_ref * (geom_moments / moment_ref)
-        sizes = np.pi * radii**2
-
-        # Clip for visibility
-        # sizes = np.clip(sizes, 1, 20000000)
-        sizes *= 0.000001
+        # Area ∝ moment
+        sizes = size_ref * (geom_moments / moment_ref)
+        sizes *= 0.01
 
         # Plot earthquakes as scatter with transparency
         ax.scatter(
             x_coords,
             z_coords,
             s=sizes,
-            c=None,
-            alpha=0.3,
+            c="gray",
+            alpha=0.2,
             edgecolors="black",
             linewidths=0.25,
             zorder=10,
@@ -1041,13 +1036,17 @@ def plot_loading_and_earthquakes(results, config):
     ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
     ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
     ax.invert_yaxis()
-    ax.set_yticks([0, 12.5, 25])
+    ax.set_yticks([0, 25])
     ax.tick_params(axis="both", labelsize=FONTSIZE)
     ax.set_aspect("equal", adjustable="box")
 
-    # Colorbar
-    cbar = plt.colorbar(cf, ax=ax)
-    cbar.set_label("Loading rate (mm/yr)", fontsize=FONTSIZE)
+    # Colorbar - match height to plot
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="2%", pad=0.1)
+    cbar = plt.colorbar(cf, cax=cax)
+    cbar.set_label("$s_\\mathrm{{{{d}}}}$ (mm/yr)", fontsize=FONTSIZE)
     cbar.ax.tick_params(labelsize=FONTSIZE - 2)
 
     plt.tight_layout()
