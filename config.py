@@ -32,15 +32,15 @@ class Config:
     shear_modulus_Pa = 3e10  # Pa (30 GPa)
 
     # Magnitude dependent spatial probability
-    gamma_min = 0.0  # Small events anywhere
-    gamma_max = 1.5  # Large events need a pool of moment
+    gamma_min = 0.5  # Small events anywhere
+    gamma_max = 3.0  # Large events need a pool of moment
     alpha_spatial = 0.35  # Decay rate
     M_min = 5.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
     # Adaptive rate correction
     adaptive_correction_enabled = (
-        True  # Enable adaptive correction (True = drives coupling toward 1.0)
+        False  # Enable adaptive correction (True = drives coupling toward 1.0)
     )
     adaptive_correction_gain = (
         5.0  # Proportional control gain for coupling correction (continuous updates)
@@ -118,7 +118,7 @@ class Config:
     b_value = 1.0
 
     # Time
-    duration_years = 1000.0  # Full simulation duration
+    duration_years = 5000.0  # Full simulation duration
     time_step_years = 1.0  # Time resolution (years)
 
     # Random seed for reproducibility

@@ -44,7 +44,16 @@ def create_hdf5_file(filepath, config, mesh):
         if value is None:
             continue
         elif isinstance(value, (list, tuple)):
-            config_group.attrs[key] = np.array(value)
+            # Check if it's a list of dicts (like moment_pulses) - serialize as JSON
+            if len(value) > 0 and isinstance(value[0], dict):
+                import json
+                config_group.attrs[key] = json.dumps(value)
+            else:
+                config_group.attrs[key] = np.array(value)
+        elif isinstance(value, dict):
+            # Serialize dicts as JSON
+            import json
+            config_group.attrs[key] = json.dumps(value)
         else:
             config_group.attrs[key] = value
 
@@ -417,6 +426,13 @@ def read_config(h5file):
             value = value.item()  # Scalar
         elif isinstance(value, np.ndarray):
             value = value.tolist()
+        # Deserialize JSON strings (used for moment_pulses and other nested structures)
+        elif isinstance(value, str) and (value.startswith('[') or value.startswith('{')):
+            try:
+                import json
+                value = json.loads(value)
+            except (json.JSONDecodeError, ValueError):
+                pass  # Keep as string if not valid JSON
         setattr(config, key, value)
 
     return config
