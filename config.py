@@ -32,8 +32,8 @@ class Config:
     shear_modulus_Pa = 3e10  # Pa (30 GPa)
 
     # Magnitude dependent spatial probability
-    gamma_min = 0.5  # Small events anywhere
-    gamma_max = 1.5  # Large events need a pool of moment
+    gamma_min = 0.0  # Small events anywhere
+    gamma_max = 8.0  # Large events need a pool of moment
     alpha_spatial = 0.35  # Decay rate
     M_min = 5.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
