@@ -20,9 +20,13 @@ Examples:
     # Vary both amplitude and seed
     python run_ensemble.py --vary_amplitude --vary_seed
 
+    # Run shorter simulations (100 years each)
+    python run_ensemble.py --vary_location --duration 100
+
 Defaults:
     n_runs = 5
     delta = 2.0 (mm/yr for amplitude, km for location)
+    duration = from config.py (default 1000 years)
     vary_seed = False
     vary_amplitude = False
     vary_location = False
@@ -45,6 +49,7 @@ def run_ensemble(
     vary_amplitude=False,
     vary_location=False,
     base_seed=42,
+    duration=None,
 ):
     """
     Run ensemble of simulations with varying parameters
@@ -65,6 +70,8 @@ def run_ensemble(
         If True, shift pulse location by delta each run
     base_seed : int
         Base random seed (default: 42)
+    duration : float, optional
+        Simulation duration in years (default: use config.py value)
 
     Returns:
     --------
@@ -86,6 +93,10 @@ def run_ensemble(
     print("=" * 70)
     print(f"Number of runs: {n_runs}")
     print(f"Delta: {delta}")
+    if duration is not None:
+        print(f"Duration: {duration} years")
+    else:
+        print(f"Duration: {base_config.duration_years} years (default)")
     print()
     print("Varying parameters:")
     if vary_seed:
@@ -166,6 +177,8 @@ def run_ensemble(
         config.output_dir = str(output_path)
         config.output_hdf5 = output_filename
         config.random_seed = seed
+        if duration is not None:
+            config.duration_years = duration
 
         # Compute derived parameters
         config.compute_derived_parameters()
@@ -235,6 +248,12 @@ def main():
         default=42,
         help="Base random seed (default: 42)",
     )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=None,
+        help="Simulation duration in years (default: use config.py value)",
+    )
 
     args = parser.parse_args()
 
@@ -246,6 +265,7 @@ def main():
         vary_amplitude=args.vary_amplitude,
         vary_location=args.vary_location,
         base_seed=args.base_seed,
+        duration=args.duration,
     )
 
 
