@@ -634,18 +634,18 @@ def plot_ensemble_loading_events(
             offset_x = 5 if hypo_x < config.fault_length_km / 2 else -5
             ha = "left" if offset_x > 0 else "right"
 
-            label = f"M{magnitude:.1f}\n$m$={moment_at_hypo:.2f} m"
-            # ax.annotate(
-            #     label,
-            #     xy=(hypo_x, hypo_z),
-            #     xytext=(hypo_x + offset_x, hypo_z),
-            #     fontsize=FONTSIZE - 2,
-            #     ha=ha,
-            #     va="center",
-            #     bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8, edgecolor="blue"),
-            #     arrowprops=dict(arrowstyle="-", color="blue", lw=0.5),
-            #     zorder=30,
-            # )
+        #     label = f"M{magnitude:.1f}\n$m$={moment_at_hypo:.2f} m"
+        # ax.annotate(
+        #     label,
+        #     xy=(hypo_x, hypo_z),
+        #     xytext=(hypo_x + offset_x, hypo_z),
+        #     fontsize=FONTSIZE - 2,
+        #     ha=ha,
+        #     va="center",
+        #     bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8, edgecolor="blue"),
+        #     arrowprops=dict(arrowstyle="-", color="blue", lw=0.5),
+        #     zorder=30,
+        # )
 
         # Formatting
         ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
