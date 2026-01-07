@@ -87,7 +87,9 @@ def plot_ensemble_timeseries(input_dir="results/ensemble", output=None):
 
         # Get pulse parameters from config
         pulse_x = config.moment_pulses[0]["center_x_km"] if config.moment_pulses else 0
-        pulse_amp = config.moment_pulses[0]["amplitude_mm_yr"] if config.moment_pulses else 0
+        pulse_amp = (
+            config.moment_pulses[0]["amplitude_mm_yr"] if config.moment_pulses else 0
+        )
 
         # Plot vertical lines for M>=6 events (stem plot style)
         for j in range(len(times)):
@@ -145,7 +147,8 @@ def plot_ensemble_timeseries(input_dir="results/ensemble", output=None):
             transform=ax.transAxes,
             fontsize=FONTSIZE,
             verticalalignment="top",
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+            bbox=dict(boxstyle="square", facecolor="white", alpha=1.0),
+            zorder=30,
         )
 
         # Event count
@@ -154,23 +157,24 @@ def plot_ensemble_timeseries(input_dir="results/ensemble", output=None):
         ax.text(
             0.98,
             0.95,
-            f"N = {n_events} ({n_large} M$\\geq$6)",
+            f"$n$ = {n_events} ({n_large} $M\\geq$6)",
             transform=ax.transAxes,
             fontsize=FONTSIZE - 1,
             verticalalignment="top",
             horizontalalignment="right",
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+            bbox=dict(boxstyle="square", facecolor="white", alpha=1.0),
+            zorder=30,
         )
 
     # X-axis label on bottom subplot only
     axes[-1].set_xlabel("$t$ (years)", fontsize=FONTSIZE)
 
     # Title
-    fig.suptitle(
-        "Ensemble comparison: Earthquake sequences with varying pulse locations",
-        fontsize=FONTSIZE + 2,
-        y=1.01,
-    )
+    # fig.suptitle(
+    #     "Ensemble comparison: Earthquake sequences with varying pulse locations",
+    #     fontsize=FONTSIZE + 2,
+    #     y=1.01,
+    # )
 
     plt.tight_layout()
 
@@ -180,7 +184,7 @@ def plot_ensemble_timeseries(input_dir="results/ensemble", output=None):
     else:
         output = Path(output)
 
-    plt.savefig(output, dpi=300, bbox_inches="tight")
+    plt.savefig(output, dpi=500, bbox_inches="tight")
     print(f"\nSaved: {output}")
 
     return fig
@@ -254,7 +258,10 @@ def plot_ensemble_summary(input_dir="results/ensemble", output=None):
     # Total moment vs pulse location
     moment_scale = 1e-9
     axes[1, 1].bar(
-        pulse_locations, np.array(total_moment_list) * moment_scale, width=3, color="green"
+        pulse_locations,
+        np.array(total_moment_list) * moment_scale,
+        width=3,
+        color="green",
     )
     axes[1, 1].set_xlabel("Pulse location (km)", fontsize=FONTSIZE)
     axes[1, 1].set_ylabel(f"Total moment ($\\times 10^9$ m$^3$)", fontsize=FONTSIZE)
@@ -331,7 +338,9 @@ def plot_ensemble_loading_and_earthquakes(input_dir="results/ensemble", output=N
 
         # Get pulse parameters
         pulse_x = config.moment_pulses[0]["center_x_km"] if config.moment_pulses else 0
-        pulse_amp = config.moment_pulses[0]["amplitude_mm_yr"] if config.moment_pulses else 0
+        pulse_amp = (
+            config.moment_pulses[0]["amplitude_mm_yr"] if config.moment_pulses else 0
+        )
 
         # Create grids for contourf plotting
         length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
@@ -519,7 +528,9 @@ def plot_ensemble_loading_events(
 
         # Get pulse parameters
         pulse_x = config.moment_pulses[0]["center_x_km"] if config.moment_pulses else 0
-        pulse_amp = config.moment_pulses[0]["amplitude_mm_yr"] if config.moment_pulses else 0
+        pulse_amp = (
+            config.moment_pulses[0]["amplitude_mm_yr"] if config.moment_pulses else 0
+        )
 
         # Create grids for contourf plotting
         length_vec = np.linspace(0, config.fault_length_km, config.n_along_strike)
@@ -566,14 +577,17 @@ def plot_ensemble_loading_events(
 
         # Find first N events with M >= m_threshold
         large_events = [
-            (idx, e) for idx, e in enumerate(event_history)
+            (idx, e)
+            for idx, e in enumerate(event_history)
             if e["magnitude"] >= m_threshold
         ][:n_events]
 
         # Debug: print what loading_events is seeing
         print(f"  Panel {i} ({h5_file.name}):")
         for order, (idx, e) in enumerate(large_events, start=1):
-            print(f"    Event {order}: x={e['hypocenter_x_km']:.1f} km, M={e['magnitude']:.1f}")
+            print(
+                f"    Event {order}: x={e['hypocenter_x_km']:.1f} km, M={e['magnitude']:.1f}"
+            )
 
         # Label each large event with order number and moment at hypocenter
         for order, (event_idx, event) in enumerate(large_events, start=1):
@@ -594,10 +608,10 @@ def plot_ensemble_loading_events(
             ax.scatter(
                 hypo_x,
                 hypo_z,
-                s=100,
-                c="blue",
+                s=150,
+                c="black",
                 edgecolors="white",
-                linewidths=1.5,
+                linewidths=0.5,
                 zorder=20,
                 marker="o",
             )
@@ -607,8 +621,8 @@ def plot_ensemble_loading_events(
                 hypo_x,
                 hypo_z,
                 str(order),
-                fontsize=FONTSIZE,
-                fontweight="bold",
+                fontsize=FONTSIZE - 1,
+                # fontweight="bold",
                 color="white",
                 ha="center",
                 va="center",
@@ -621,17 +635,17 @@ def plot_ensemble_loading_events(
             ha = "left" if offset_x > 0 else "right"
 
             label = f"M{magnitude:.1f}\n$m$={moment_at_hypo:.2f} m"
-            ax.annotate(
-                label,
-                xy=(hypo_x, hypo_z),
-                xytext=(hypo_x + offset_x, hypo_z),
-                fontsize=FONTSIZE - 2,
-                ha=ha,
-                va="center",
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8, edgecolor="blue"),
-                arrowprops=dict(arrowstyle="-", color="blue", lw=0.5),
-                zorder=30,
-            )
+            # ax.annotate(
+            #     label,
+            #     xy=(hypo_x, hypo_z),
+            #     xytext=(hypo_x + offset_x, hypo_z),
+            #     fontsize=FONTSIZE - 2,
+            #     ha=ha,
+            #     va="center",
+            #     bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8, edgecolor="blue"),
+            #     arrowprops=dict(arrowstyle="-", color="blue", lw=0.5),
+            #     zorder=30,
+            # )
 
         # Formatting
         ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
@@ -651,7 +665,7 @@ def plot_ensemble_loading_events(
         if "amp" in h5_file.name:
             label_parts.append(f"$A$={pulse_amp:.0f}")
         if "_x" in h5_file.name and "seed" not in h5_file.name.split("_x")[0][-4:]:
-            label_parts.append(f"$x$={pulse_x:.0f}")
+            label_parts.append(f"$x_\mathrm{{p}}$={pulse_x:.0f}")
         if not label_parts:
             label_parts.append(f"seed={config.random_seed}")
 
@@ -664,7 +678,8 @@ def plot_ensemble_loading_events(
             transform=ax.transAxes,
             fontsize=FONTSIZE,
             verticalalignment="top",
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+            bbox=dict(boxstyle="square", facecolor="white", alpha=1.0),
+            zorder=30,
         )
 
         # Event count
@@ -673,12 +688,13 @@ def plot_ensemble_loading_events(
         ax.text(
             0.98,
             0.85,
-            f"N={n_total} ({n_large} M$\\geq${m_threshold:.0f})",
+            f"$n$={n_total}, {n_large} $M\\geq${m_threshold:.0f}",
             transform=ax.transAxes,
             fontsize=FONTSIZE - 1,
             verticalalignment="top",
             horizontalalignment="right",
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+            bbox=dict(boxstyle="square", facecolor="white", alpha=1.0),
+            zorder=30,
         )
 
     # X-axis label on bottom subplot only
@@ -686,17 +702,19 @@ def plot_ensemble_loading_events(
 
     # Add shared colorbar
     fig.subplots_adjust(right=0.88)
-    cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
+    # cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
+    cbar_ax = fig.add_axes([0.90, 0.125, 0.01, 0.1])
+
     cbar = fig.colorbar(cf, cax=cbar_ax)
     cbar.set_label("$\\dot{s}_\\mathrm{d}$ (mm/yr)", fontsize=FONTSIZE)
     cbar.ax.tick_params(labelsize=FONTSIZE - 2)
 
-    # Add title
-    fig.suptitle(
-        f"First {n_events} M$\\geq${m_threshold:.0f} events with accumulated moment at hypocenter",
-        fontsize=FONTSIZE + 1,
-        y=1.01,
-    )
+    # # Add title
+    # fig.suptitle(
+    #     f"First {n_events} M$\\geq${m_threshold:.0f} events with accumulated moment at hypocenter",
+    #     fontsize=FONTSIZE + 1,
+    #     y=1.01,
+    # )
 
     # Save
     if output is None:
@@ -704,7 +722,7 @@ def plot_ensemble_loading_events(
     else:
         output = Path(output)
 
-    plt.savefig(output, dpi=300, bbox_inches="tight")
+    plt.savefig(output, dpi=500, bbox_inches="tight")
     print(f"Saved: {output}")
 
     return fig
@@ -755,16 +773,24 @@ def plot_ensemble_loading_events_evolution(
     import json
 
     pulse_locations = []
-    event_x_locations = {i: [] for i in range(n_events)}  # event order -> list of x-locations
-    event_z_locations = {i: [] for i in range(n_events)}  # event order -> list of z-locations
-    event_magnitudes = {i: [] for i in range(n_events)}   # event order -> list of magnitudes
-    event_moments = {i: [] for i in range(n_events)}      # event order -> list of moments at hypocenter
+    event_x_locations = {
+        i: [] for i in range(n_events)
+    }  # event order -> list of x-locations
+    event_z_locations = {
+        i: [] for i in range(n_events)
+    }  # event order -> list of z-locations
+    event_magnitudes = {
+        i: [] for i in range(n_events)
+    }  # event order -> list of magnitudes
+    event_moments = {
+        i: [] for i in range(n_events)
+    }  # event order -> list of moments at hypocenter
 
     for run_idx, h5_file in enumerate(h5_files):
         # Read directly from HDF5 file
-        with h5py.File(h5_file, 'r') as f:
+        with h5py.File(h5_file, "r") as f:
             # Get pulse x-location from config
-            moment_pulses_str = f['config'].attrs.get('moment_pulses', '[]')
+            moment_pulses_str = f["config"].attrs.get("moment_pulses", "[]")
             if isinstance(moment_pulses_str, str):
                 moment_pulses = json.loads(moment_pulses_str)
             else:
@@ -773,39 +799,47 @@ def plot_ensemble_loading_events_evolution(
             pulse_locations.append(pulse_x)
 
             # Read events directly from the structured array
-            events = f['events'][:]
+            events = f["events"][:]
 
             # Read moment snapshots and times for moment lookup
-            moment_snapshots = f['moment_snapshots'][:]
-            snapshot_times = f['times'][:]
+            moment_snapshots = f["moment_snapshots"][:]
+            snapshot_times = f["times"][:]
 
             # Filter for large events
-            large_mask = events['magnitude'] >= m_threshold
+            large_mask = events["magnitude"] >= m_threshold
             large_events_raw = events[large_mask][:n_events]
 
-            print(f"  Run {run_idx} ({h5_file.name}): pulse_x={pulse_x:.1f}, found {len(large_events_raw)} large events")
+            print(
+                f"  Run {run_idx} ({h5_file.name}): pulse_x={pulse_x:.1f}, found {len(large_events_raw)} large events"
+            )
             for i, e in enumerate(large_events_raw):
                 # Find moment at hypocenter at time of event
-                event_time = e['time']
-                hypo_idx = e['hypocenter_idx']
-                snapshot_idx = np.searchsorted(snapshot_times, event_time, side="right") - 1
+                event_time = e["time"]
+                hypo_idx = e["hypocenter_idx"]
+                snapshot_idx = (
+                    np.searchsorted(snapshot_times, event_time, side="right") - 1
+                )
                 snapshot_idx = max(0, snapshot_idx)
                 moment_at_hypo = moment_snapshots[snapshot_idx, hypo_idx]
 
-                print(f"    Event {i+1}: x={e['hypocenter_x_km']:.2f} km, z={e['hypocenter_z_km']:.2f} km, M={e['magnitude']:.2f}, m={moment_at_hypo:.2f}")
+                print(
+                    f"    Event {i + 1}: x={e['hypocenter_x_km']:.2f} km, z={e['hypocenter_z_km']:.2f} km, M={e['magnitude']:.2f}, m={moment_at_hypo:.2f}"
+                )
 
             # Store data for each event order
             for i in range(n_events):
                 if i < len(large_events_raw):
                     e = large_events_raw[i]
-                    event_x_locations[i].append(float(e['hypocenter_x_km']))
-                    event_z_locations[i].append(float(e['hypocenter_z_km']))
-                    event_magnitudes[i].append(float(e['magnitude']))
+                    event_x_locations[i].append(float(e["hypocenter_x_km"]))
+                    event_z_locations[i].append(float(e["hypocenter_z_km"]))
+                    event_magnitudes[i].append(float(e["magnitude"]))
 
                     # Get moment at hypocenter
-                    event_time = e['time']
-                    hypo_idx = e['hypocenter_idx']
-                    snapshot_idx = np.searchsorted(snapshot_times, event_time, side="right") - 1
+                    event_time = e["time"]
+                    hypo_idx = e["hypocenter_idx"]
+                    snapshot_idx = (
+                        np.searchsorted(snapshot_times, event_time, side="right") - 1
+                    )
                     snapshot_idx = max(0, snapshot_idx)
                     moment_at_hypo = moment_snapshots[snapshot_idx, hypo_idx]
                     event_moments[i].append(float(moment_at_hypo))
@@ -835,12 +869,12 @@ def plot_ensemble_loading_events_evolution(
     print(f"  Pulse deltas: {pulse_delta}")
     for i in range(min(n_events, 4)):  # Only print first 4 events
         if not np.all(np.isnan(event_x_locations[i])):
-            print(f"  Event {i+1} x-locations: {event_x_locations[i]}")
-            print(f"  Event {i+1} z-locations: {event_z_locations[i]}")
-            print(f"  Event {i+1} Δx: {event_x_locations[i] - reference_x[i]}")
-            print(f"  Event {i+1} Δz: {event_z_locations[i] - reference_z[i]}")
-            print(f"  Event {i+1} magnitudes: {event_magnitudes[i]}")
-            print(f"  Event {i+1} moments: {event_moments[i]}")
+            print(f"  Event {i + 1} x-locations: {event_x_locations[i]}")
+            print(f"  Event {i + 1} z-locations: {event_z_locations[i]}")
+            print(f"  Event {i + 1} Δx: {event_x_locations[i] - reference_x[i]}")
+            print(f"  Event {i + 1} Δz: {event_z_locations[i] - reference_z[i]}")
+            print(f"  Event {i + 1} magnitudes: {event_magnitudes[i]}")
+            print(f"  Event {i + 1} moments: {event_moments[i]}")
 
     # Create figure with four subplots in a single column
     fig, axes = plt.subplots(4, 1, figsize=(10, 14), sharex=True)
