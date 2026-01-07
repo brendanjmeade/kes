@@ -7,7 +7,7 @@ uncertainty from the MaxEnt probability distribution.
 
 Usage:
     python eta_analysis.py [--input_dir DIR] [--n_events N] [--m_threshold M]
-                          [--delta_threshold D]
+                          [--delta_threshold D] [--theory] [--fault_length L]
 
 Examples:
     # Analyze first 5 M>=6 events with 5 km transition threshold
@@ -15,6 +15,9 @@ Examples:
 
     # Analyze first 10 M>=7 events with 2 km transition threshold
     python eta_analysis.py --n_events 10 --m_threshold 7.0 --delta_threshold 2.0
+
+    # Include theoretical comparison plots
+    python eta_analysis.py --theory --fault_length 150.0
 """
 
 import argparse
@@ -26,6 +29,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from spatial_prob import gamma_magnitude_dependent
+import eta_theory
 
 FONTSIZE = 8
 
@@ -61,7 +65,7 @@ def conditional_entropy(m_i, gamma, magnitude=None):
     m_positive = np.maximum(m_i, 1e-10)
 
     # Unnormalized probability
-    p_unnorm = m_positive ** g
+    p_unnorm = m_positive**g
 
     # Normalize
     p_sum = np.sum(p_unnorm)
@@ -114,8 +118,9 @@ def detect_transitions(hypocenters, x_pulse_values, delta_threshold):
     n_transitions = np.sum(transition_mask)
 
     # Midpoints of pulse intervals where transitions occurred
-    transition_locations = 0.5 * (x_pulse_values[:-1][transition_mask] +
-                                   x_pulse_values[1:][transition_mask])
+    transition_locations = 0.5 * (
+        x_pulse_values[:-1][transition_mask] + x_pulse_values[1:][transition_mask]
+    )
 
     return n_transitions, transition_locations
 
@@ -184,55 +189,57 @@ def load_ensemble_data(input_dir, n_events=5, m_threshold=6.0):
     print(f"Loading {len(h5_files)} ensemble files...")
 
     ensemble_data = {
-        'x_pulse': [],
-        'events': [],  # List of event lists per run
-        'moment_fields': [],  # List of moment field lists per run (one per event)
-        'config_params': None,
-        'mesh': None,
-        'element_size_km': None,
+        "x_pulse": [],
+        "events": [],  # List of event lists per run
+        "moment_fields": [],  # List of moment field lists per run (one per event)
+        "config_params": None,
+        "mesh": None,
+        "element_size_km": None,
     }
 
     for h5_file in h5_files:
-        with h5py.File(h5_file, 'r') as f:
+        with h5py.File(h5_file, "r") as f:
             # Get pulse x-location from config
-            moment_pulses_str = f['config'].attrs.get('moment_pulses', '[]')
+            moment_pulses_str = f["config"].attrs.get("moment_pulses", "[]")
             if isinstance(moment_pulses_str, str):
                 moment_pulses = json.loads(moment_pulses_str)
             else:
                 moment_pulses = []
             pulse_x = moment_pulses[0]["center_x_km"] if moment_pulses else 0
-            ensemble_data['x_pulse'].append(pulse_x)
+            ensemble_data["x_pulse"].append(pulse_x)
 
             # Get config parameters (only need once)
-            if ensemble_data['config_params'] is None:
-                ensemble_data['config_params'] = {
-                    'gamma_min': f['config'].attrs.get('gamma_min', 0.5),
-                    'gamma_max': f['config'].attrs.get('gamma_max', 1.5),
-                    'alpha_spatial': f['config'].attrs.get('alpha_spatial', 0.35),
-                    'M_min': f['config'].attrs.get('M_min', 5.0),
+            if ensemble_data["config_params"] is None:
+                ensemble_data["config_params"] = {
+                    "gamma_min": f["config"].attrs.get("gamma_min", 0.5),
+                    "gamma_max": f["config"].attrs.get("gamma_max", 1.5),
+                    "alpha_spatial": f["config"].attrs.get("alpha_spatial", 0.35),
+                    "M_min": f["config"].attrs.get("M_min", 5.0),
                 }
-                ensemble_data['element_size_km'] = f['config'].attrs.get('element_size_km', 1.0)
+                ensemble_data["element_size_km"] = f["config"].attrs.get(
+                    "element_size_km", 1.0
+                )
 
             # Get mesh (only need once)
-            if ensemble_data['mesh'] is None:
-                mesh_group = f['mesh']
-                ensemble_data['mesh'] = {
-                    'centroids': mesh_group['centroids'][:],
-                    'x_coords': mesh_group['x_coords'][:],
-                    'z_coords': mesh_group['z_coords'][:],
-                    'n_along_strike': int(mesh_group.attrs['n_along_strike']),
-                    'n_down_dip': int(mesh_group.attrs['n_down_dip']),
+            if ensemble_data["mesh"] is None:
+                mesh_group = f["mesh"]
+                ensemble_data["mesh"] = {
+                    "centroids": mesh_group["centroids"][:],
+                    "x_coords": mesh_group["x_coords"][:],
+                    "z_coords": mesh_group["z_coords"][:],
+                    "n_along_strike": int(mesh_group.attrs["n_along_strike"]),
+                    "n_down_dip": int(mesh_group.attrs["n_down_dip"]),
                 }
 
             # Read events
-            events = f['events'][:]
+            events = f["events"][:]
 
             # Read moment snapshots and times for moment field lookup
-            moment_snapshots = f['moment_snapshots'][:]
-            snapshot_times = f['times'][:]
+            moment_snapshots = f["moment_snapshots"][:]
+            snapshot_times = f["times"][:]
 
             # Filter for large events
-            large_mask = events['magnitude'] >= m_threshold
+            large_mask = events["magnitude"] >= m_threshold
             large_events = events[large_mask][:n_events]
 
             # Extract event data and moment fields at event times
@@ -240,31 +247,33 @@ def load_ensemble_data(input_dir, n_events=5, m_threshold=6.0):
             run_moment_fields = []
 
             for e in large_events:
-                event_time = e['time']
-                hypo_idx = e['hypocenter_idx']
+                event_time = e["time"]
+                hypo_idx = e["hypocenter_idx"]
 
                 # Find snapshot closest to (but <= ) event time
-                snapshot_idx = np.searchsorted(snapshot_times, event_time, side="right") - 1
+                snapshot_idx = (
+                    np.searchsorted(snapshot_times, event_time, side="right") - 1
+                )
                 snapshot_idx = max(0, snapshot_idx)
 
                 # Get moment field at this time
                 moment_field = moment_snapshots[snapshot_idx, :]
 
                 event_dict = {
-                    'x_hypo': float(e['hypocenter_x_km']),
-                    'z_hypo': float(e['hypocenter_z_km']),
-                    'magnitude': float(e['magnitude']),
-                    'element_idx': int(hypo_idx),
-                    'time': float(event_time),
-                    'gamma_used': float(e['gamma_used']),
+                    "x_hypo": float(e["hypocenter_x_km"]),
+                    "z_hypo": float(e["hypocenter_z_km"]),
+                    "magnitude": float(e["magnitude"]),
+                    "element_idx": int(hypo_idx),
+                    "time": float(event_time),
+                    "gamma_used": float(e["gamma_used"]),
                 }
                 run_events.append(event_dict)
                 run_moment_fields.append(moment_field)
 
-            ensemble_data['events'].append(run_events)
-            ensemble_data['moment_fields'].append(run_moment_fields)
+            ensemble_data["events"].append(run_events)
+            ensemble_data["moment_fields"].append(run_moment_fields)
 
-    ensemble_data['x_pulse'] = np.array(ensemble_data['x_pulse'])
+    ensemble_data["x_pulse"] = np.array(ensemble_data["x_pulse"])
 
     return ensemble_data
 
@@ -285,7 +294,7 @@ def analyze_ensemble(ensemble_data, delta_threshold=None):
     results : dict
         Contains per-event metrics
     """
-    x_pulse = ensemble_data['x_pulse']
+    x_pulse = ensemble_data["x_pulse"]
     sort_idx = np.argsort(x_pulse)
     x_pulse_sorted = x_pulse[sort_idx]
     x_pulse_range = x_pulse_sorted[-1] - x_pulse_sorted[0]
@@ -294,13 +303,13 @@ def analyze_ensemble(ensemble_data, delta_threshold=None):
 
     # Default threshold based on element size
     if delta_threshold is None:
-        delta_threshold = ensemble_data['element_size_km'] * 2.0
+        delta_threshold = ensemble_data["element_size_km"] * 2.0
 
     # Get config params for gamma calculation
-    cfg = ensemble_data['config_params']
+    cfg = ensemble_data["config_params"]
 
     # Determine number of events (may vary between runs due to filtering)
-    min_events = min(len(run_events) for run_events in ensemble_data['events'])
+    min_events = min(len(run_events) for run_events in ensemble_data["events"])
     n_events = min_events
 
     print(f"Analyzing {n_events} events across {n_runs} runs")
@@ -308,17 +317,17 @@ def analyze_ensemble(ensemble_data, delta_threshold=None):
     print(f"  Transition threshold: {delta_threshold:.1f} km")
 
     results = {
-        'event_idx': [],
-        'magnitude': [],
-        'H_mean': [],           # Mean entropy across runs
-        'N_eff_mean': [],       # Mean effective sites
-        'n_transitions': [],    # Transition count
-        'rho_T': [],            # Transition density
-        'eta': [],              # Normalized transition density
-        'transition_locations': [],
-        'hypocenters': [],      # Store hypocenters for plotting
-        'x_pulse_sorted': x_pulse_sorted,
-        'delta_threshold': delta_threshold,
+        "event_idx": [],
+        "magnitude": [],
+        "H_mean": [],  # Mean entropy across runs
+        "N_eff_mean": [],  # Mean effective sites
+        "n_transitions": [],  # Transition count
+        "rho_T": [],  # Transition density
+        "eta": [],  # Normalized transition density
+        "transition_locations": [],
+        "hypocenters": [],  # Store hypocenters for plotting
+        "x_pulse_sorted": x_pulse_sorted,
+        "delta_threshold": delta_threshold,
     }
 
     for k in range(n_events):
@@ -330,21 +339,21 @@ def analyze_ensemble(ensemble_data, delta_threshold=None):
 
         for i, run_idx in enumerate(sort_idx):
             # Skip if this run doesn't have event k
-            if k >= len(ensemble_data['events'][run_idx]):
+            if k >= len(ensemble_data["events"][run_idx]):
                 hypocenters[i, :] = np.nan
                 magnitudes[i] = np.nan
                 continue
 
-            event = ensemble_data['events'][run_idx][k]
-            hypocenters[i, 0] = event['x_hypo']
-            hypocenters[i, 1] = event['z_hypo']
-            magnitudes[i] = event['magnitude']
+            event = ensemble_data["events"][run_idx][k]
+            hypocenters[i, 0] = event["x_hypo"]
+            hypocenters[i, 1] = event["z_hypo"]
+            magnitudes[i] = event["magnitude"]
 
             # Get moment field at time of this event
-            moment_field = ensemble_data['moment_fields'][run_idx][k]
+            moment_field = ensemble_data["moment_fields"][run_idx][k]
 
             # Use gamma_used from the event (already computed during simulation)
-            gamma = event['gamma_used']
+            gamma = event["gamma_used"]
 
             # Compute entropy
             H, N_eff = conditional_entropy(moment_field, gamma)
@@ -363,7 +372,9 @@ def analyze_ensemble(ensemble_data, delta_threshold=None):
         valid_hypo = hypocenters[valid_mask]
         valid_pulse = x_pulse_sorted[valid_mask]
 
-        n_trans, trans_locs = detect_transitions(valid_hypo, valid_pulse, delta_threshold)
+        n_trans, trans_locs = detect_transitions(
+            valid_hypo, valid_pulse, delta_threshold
+        )
 
         # Transition density
         rho_T = transition_density(n_trans, x_pulse_range)
@@ -372,19 +383,26 @@ def analyze_ensemble(ensemble_data, delta_threshold=None):
         eta = compute_eta(rho_T, H_mean)
 
         # Store results
-        results['event_idx'].append(k)
-        results['magnitude'].append(M_mean)
-        results['H_mean'].append(H_mean)
-        results['N_eff_mean'].append(N_eff_mean)
-        results['n_transitions'].append(n_trans)
-        results['rho_T'].append(rho_T)
-        results['eta'].append(eta)
-        results['transition_locations'].append(trans_locs)
-        results['hypocenters'].append(hypocenters)
+        results["event_idx"].append(k)
+        results["magnitude"].append(M_mean)
+        results["H_mean"].append(H_mean)
+        results["N_eff_mean"].append(N_eff_mean)
+        results["n_transitions"].append(n_trans)
+        results["rho_T"].append(rho_T)
+        results["eta"].append(eta)
+        results["transition_locations"].append(trans_locs)
+        results["hypocenters"].append(hypocenters)
 
     # Convert to arrays
-    for key in ['event_idx', 'magnitude', 'H_mean', 'N_eff_mean',
-                'n_transitions', 'rho_T', 'eta']:
+    for key in [
+        "event_idx",
+        "magnitude",
+        "H_mean",
+        "N_eff_mean",
+        "n_transitions",
+        "rho_T",
+        "eta",
+    ]:
         results[key] = np.array(results[key])
 
     return results
@@ -409,55 +427,67 @@ def plot_eta_analysis(results, output_dir=None):
 
     # 1. eta vs magnitude
     ax = axes[0, 0]
-    valid_eta = np.isfinite(results['eta'])
-    ax.scatter(results['magnitude'][valid_eta], results['eta'][valid_eta],
-               s=60, c='steelblue', edgecolors='black', linewidths=0.5)
-    ax.set_xlabel('Magnitude', fontsize=FONTSIZE + 2)
-    ax.set_ylabel('$\\eta$ (transitions per km per nat)', fontsize=FONTSIZE + 2)
-    ax.set_title('Sensitivity vs Magnitude', fontsize=FONTSIZE + 2)
-    ax.tick_params(axis='both', labelsize=FONTSIZE)
+    valid_eta = np.isfinite(results["eta"])
+    ax.scatter(
+        results["magnitude"][valid_eta],
+        results["eta"][valid_eta],
+        s=60,
+        c="steelblue",
+        edgecolors="black",
+        linewidths=0.5,
+    )
+    ax.set_xlabel("Magnitude", fontsize=FONTSIZE + 2)
+    ax.set_ylabel("$\\eta$ (transitions per km per nat)", fontsize=FONTSIZE + 2)
+    ax.set_title("Sensitivity vs Magnitude", fontsize=FONTSIZE + 2)
+    ax.tick_params(axis="both", labelsize=FONTSIZE)
     ax.grid(True, alpha=0.3)
 
     # 2. Transition count vs effective sites
     ax = axes[0, 1]
-    ax.scatter(results['N_eff_mean'], results['n_transitions'],
-               s=60, c='coral', edgecolors='black', linewidths=0.5)
-    max_val = max(max(results['N_eff_mean']), max(results['n_transitions'])) * 1.1
-    ax.plot([0, max_val], [0, max_val], 'k--', alpha=0.5, label='1:1')
-    ax.set_xlabel('$N_{eff}$ (effective sites)', fontsize=FONTSIZE + 2)
-    ax.set_ylabel('Number of transitions', fontsize=FONTSIZE + 2)
-    ax.set_title('Realized vs Theoretical Variability', fontsize=FONTSIZE + 2)
-    ax.tick_params(axis='both', labelsize=FONTSIZE)
+    ax.scatter(
+        results["N_eff_mean"],
+        results["n_transitions"],
+        s=60,
+        c="coral",
+        edgecolors="black",
+        linewidths=0.5,
+    )
+    max_val = max(max(results["N_eff_mean"]), max(results["n_transitions"])) * 1.1
+    ax.plot([0, max_val], [0, max_val], "k--", alpha=0.5, label="1:1")
+    ax.set_xlabel("$N_{eff}$ (effective sites)", fontsize=FONTSIZE + 2)
+    ax.set_ylabel("Number of transitions", fontsize=FONTSIZE + 2)
+    ax.set_title("Realized vs Theoretical Variability", fontsize=FONTSIZE + 2)
+    ax.tick_params(axis="both", labelsize=FONTSIZE)
     ax.legend(fontsize=FONTSIZE)
     ax.grid(True, alpha=0.3)
 
     # 3. Histogram of transition locations
     ax = axes[1, 0]
-    all_transitions = np.concatenate(results['transition_locations'])
+    all_transitions = np.concatenate(results["transition_locations"])
     if len(all_transitions) > 0:
-        ax.hist(all_transitions, bins=20, edgecolor='black', color='purple', alpha=0.7)
-    ax.set_xlabel('$x_{pulse}$ (km)', fontsize=FONTSIZE + 2)
-    ax.set_ylabel('Transition count', fontsize=FONTSIZE + 2)
-    ax.set_title('Where Do Transitions Occur?', fontsize=FONTSIZE + 2)
-    ax.tick_params(axis='both', labelsize=FONTSIZE)
+        ax.hist(all_transitions, bins=20, edgecolor="black", color="purple", alpha=0.7)
+    ax.set_xlabel("$x_{pulse}$ (km)", fontsize=FONTSIZE + 2)
+    ax.set_ylabel("Transition count", fontsize=FONTSIZE + 2)
+    ax.set_title("Where Do Transitions Occur?", fontsize=FONTSIZE + 2)
+    ax.tick_params(axis="both", labelsize=FONTSIZE)
     ax.grid(True, alpha=0.3)
 
     # 4. eta distribution
     ax = axes[1, 1]
-    finite_eta = results['eta'][np.isfinite(results['eta'])]
+    finite_eta = results["eta"][np.isfinite(results["eta"])]
     if len(finite_eta) > 0:
-        ax.hist(finite_eta, bins=15, edgecolor='black', color='green', alpha=0.7)
-    ax.set_xlabel('$\\eta$', fontsize=FONTSIZE + 2)
-    ax.set_ylabel('Count', fontsize=FONTSIZE + 2)
-    ax.set_title('Distribution of $\\eta$ Across Events', fontsize=FONTSIZE + 2)
-    ax.tick_params(axis='both', labelsize=FONTSIZE)
+        ax.hist(finite_eta, bins=15, edgecolor="black", color="green", alpha=0.7)
+    ax.set_xlabel("$\\eta$", fontsize=FONTSIZE + 2)
+    ax.set_ylabel("Count", fontsize=FONTSIZE + 2)
+    ax.set_title("Distribution of $\\eta$ Across Events", fontsize=FONTSIZE + 2)
+    ax.tick_params(axis="both", labelsize=FONTSIZE)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
     if output_dir is not None:
         output_path = Path(output_dir) / "eta_analysis.png"
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
         print(f"Saved: {output_path}")
 
     return fig
@@ -478,9 +508,9 @@ def plot_hypocenter_trajectories(results, output_dir=None):
     -------
     fig : matplotlib.figure.Figure
     """
-    n_events = len(results['event_idx'])
-    x_pulse = results['x_pulse_sorted']
-    delta_threshold = results['delta_threshold']
+    n_events = len(results["event_idx"])
+    x_pulse = results["x_pulse_sorted"]
+    delta_threshold = results["delta_threshold"]
 
     # Create figure with subplots for each event
     n_cols = min(3, n_events)
@@ -500,7 +530,7 @@ def plot_hypocenter_trajectories(results, output_dir=None):
         row, col = k // n_cols, k % n_cols
         ax = axes[row, col]
 
-        hypocenters = results['hypocenters'][k]
+        hypocenters = results["hypocenters"][k]
 
         # Plot trajectory
         valid_mask = ~np.isnan(hypocenters[:, 0])
@@ -508,25 +538,41 @@ def plot_hypocenter_trajectories(results, output_dir=None):
         valid_pulse = x_pulse[valid_mask]
 
         # Connect with lines
-        ax.plot(valid_hypo[:, 0], valid_hypo[:, 1], '-', color='gray',
-                linewidth=1, alpha=0.5, zorder=1)
+        ax.plot(
+            valid_hypo[:, 0],
+            valid_hypo[:, 1],
+            "-",
+            color="gray",
+            linewidth=1,
+            alpha=0.5,
+            zorder=1,
+        )
 
         # Scatter points colored by pulse location
-        scatter = ax.scatter(valid_hypo[:, 0], valid_hypo[:, 1],
-                            c=valid_pulse, cmap='viridis', s=80,
-                            edgecolors='black', linewidths=0.5, zorder=2)
+        scatter = ax.scatter(
+            valid_hypo[:, 0],
+            valid_hypo[:, 1],
+            c=valid_pulse,
+            cmap="viridis",
+            s=80,
+            edgecolors="black",
+            linewidths=0.5,
+            zorder=2,
+        )
 
         # Mark transitions
-        n_trans = results['n_transitions'][k]
+        n_trans = results["n_transitions"][k]
 
-        ax.set_xlabel('$x$ (km)', fontsize=FONTSIZE)
-        ax.set_ylabel('$z$ (km)', fontsize=FONTSIZE)
-        ax.set_title(f"Event {k+1}: M={results['magnitude'][k]:.2f}, "
-                    f"$\\eta$={results['eta'][k]:.3f}, n_trans={n_trans}",
-                    fontsize=FONTSIZE)
-        ax.tick_params(axis='both', labelsize=FONTSIZE - 1)
+        ax.set_xlabel("$x$ (km)", fontsize=FONTSIZE)
+        ax.set_ylabel("$z$ (km)", fontsize=FONTSIZE)
+        ax.set_title(
+            f"Event {k + 1}: M={results['magnitude'][k]:.2f}, "
+            f"$\\eta$={results['eta'][k]:.3f}, n_trans={n_trans}",
+            fontsize=FONTSIZE,
+        )
+        ax.tick_params(axis="both", labelsize=FONTSIZE - 1)
         ax.invert_yaxis()
-        ax.set_aspect('equal', adjustable='box')
+        ax.set_aspect("equal", adjustable="box")
 
     # Hide empty subplots
     for k in range(n_events, n_rows * n_cols):
@@ -537,15 +583,16 @@ def plot_hypocenter_trajectories(results, output_dir=None):
     fig.subplots_adjust(right=0.85)
     cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.7])
     cbar = fig.colorbar(scatter, cax=cbar_ax)
-    cbar.set_label('$x_{pulse}$ (km)', fontsize=FONTSIZE)
+    cbar.set_label("$x_{pulse}$ (km)", fontsize=FONTSIZE)
     cbar.ax.tick_params(labelsize=FONTSIZE - 1)
 
-    plt.suptitle('Hypocenter Trajectories with Pulse Location',
-                fontsize=FONTSIZE + 3, y=1.02)
+    plt.suptitle(
+        "Hypocenter Trajectories with Pulse Location", fontsize=FONTSIZE + 3, y=1.02
+    )
 
     if output_dir is not None:
         output_path = Path(output_dir) / "eta_trajectories.png"
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
         print(f"Saved: {output_path}")
 
     return fig
@@ -563,23 +610,29 @@ def print_summary(results):
 
     print("\nPer-event results:")
     print("-" * 70)
-    print(f"{'Event':>6} {'Mag':>6} {'H':>8} {'N_eff':>8} {'n_trans':>8} {'rho_T':>10} {'eta':>10}")
+    print(
+        f"{'Event':>6} {'Mag':>6} {'H':>8} {'N_eff':>8} {'n_trans':>8} {'rho_T':>10} {'eta':>10}"
+    )
     print("-" * 70)
 
-    for i in range(len(results['event_idx'])):
-        eta_str = f"{results['eta'][i]:.4f}" if np.isfinite(results['eta'][i]) else "inf"
-        print(f"{results['event_idx'][i]+1:>6} "
-              f"{results['magnitude'][i]:>6.2f} "
-              f"{results['H_mean'][i]:>8.3f} "
-              f"{results['N_eff_mean'][i]:>8.1f} "
-              f"{results['n_transitions'][i]:>8} "
-              f"{results['rho_T'][i]:>10.4f} "
-              f"{eta_str:>10}")
+    for i in range(len(results["event_idx"])):
+        eta_str = (
+            f"{results['eta'][i]:.4f}" if np.isfinite(results["eta"][i]) else "inf"
+        )
+        print(
+            f"{results['event_idx'][i] + 1:>6} "
+            f"{results['magnitude'][i]:>6.2f} "
+            f"{results['H_mean'][i]:>8.3f} "
+            f"{results['N_eff_mean'][i]:>8.1f} "
+            f"{results['n_transitions'][i]:>8} "
+            f"{results['rho_T'][i]:>10.4f} "
+            f"{eta_str:>10}"
+        )
 
     print("-" * 70)
 
     # Summary statistics
-    finite_eta = results['eta'][np.isfinite(results['eta'])]
+    finite_eta = results["eta"][np.isfinite(results["eta"])]
     if len(finite_eta) > 0:
         print(f"\neta statistics:")
         print(f"  Mean: {np.mean(finite_eta):.4f}")
@@ -605,6 +658,75 @@ def print_summary(results):
         print("  LOW eta (<0.01): Smooth landscape. Despite theoretical uncertainty,")
         print("  the system is stable. Refining loading estimates may not improve")
         print("  spatial forecasts.")
+
+
+def generate_theory_comparison(results, fault_length, delta_x, output_dir=None):
+    """
+    Generate theoretical comparison plots using eta_theory module.
+
+    Parameters
+    ----------
+    results : dict
+        Output from analyze_ensemble()
+    fault_length : float
+        Fault length in km
+    delta_x : float
+        Pulse step size in km (computed from x_pulse_sorted)
+    output_dir : str or Path, optional
+        Directory to save plots
+    """
+    # Build simulation_results dict for eta_theory
+    simulation_results = {
+        "H": results["H_mean"],
+        "eta": results["eta"],
+        "magnitude": results["magnitude"],
+        "N_eff": results["N_eff_mean"],
+    }
+
+    # Filter for finite eta values
+    finite_mask = np.isfinite(simulation_results["eta"])
+    for key in simulation_results:
+        simulation_results[key] = simulation_results[key][finite_mask]
+
+    if len(simulation_results["eta"]) == 0:
+        print("Warning: No finite eta values to compare with theory.")
+        return
+
+    # Fit alpha to data
+    H_mean = np.mean(simulation_results["H"])
+    N_eff_mean = np.mean(simulation_results["N_eff"])
+    eta_mean = np.mean(simulation_results["eta"])
+
+    ell_b_empirical = 1.0 / (eta_mean * H_mean)
+    alpha_fit = ell_b_empirical * np.sqrt(N_eff_mean) / fault_length
+
+    print("\nTheory Comparison:")
+    print(f"  Empirical basin size: {ell_b_empirical:.2f} km")
+    print(f"  Fitted alpha: {alpha_fit:.3f}")
+    print(f"  Expected ell_b (alpha=1): {fault_length / np.sqrt(N_eff_mean):.2f} km")
+
+    # Generate comparison plot
+    fig1 = eta_theory.plot_eta_theory_comparison(
+        simulation_results=simulation_results,
+        L=fault_length,
+        delta_x=delta_x,
+        alpha=alpha_fit,
+    )
+
+    if output_dir is not None:
+        output_path = Path(output_dir) / "eta_theory_comparison.png"
+        fig1.savefig(output_path, dpi=1000, bbox_inches="tight")
+        print(f"Saved: {output_path}")
+
+    # Generate regime diagram
+    fig2 = eta_theory.plot_regime_diagram(L=fault_length)
+
+    if output_dir is not None:
+        output_path = Path(output_dir) / "eta_regime_diagram.png"
+        fig2.savefig(output_path, dpi=150, bbox_inches="tight")
+        print(f"Saved: {output_path}")
+
+    return fig1, fig2
 
 
 def main():
@@ -635,6 +757,17 @@ def main():
         default=None,
         help="Transition detection threshold in km (default: 2x element size)",
     )
+    parser.add_argument(
+        "--theory",
+        action="store_true",
+        help="Generate theoretical comparison plots using eta_theory module",
+    )
+    parser.add_argument(
+        "--fault_length",
+        type=float,
+        default=150.0,
+        help="Fault length in km for theory comparison (default: 150.0)",
+    )
 
     args = parser.parse_args()
 
@@ -654,6 +787,22 @@ def main():
     # Generate plots
     plot_eta_analysis(results, output_dir=args.input_dir)
     plot_hypocenter_trajectories(results, output_dir=args.input_dir)
+
+    # Generate theory comparison if requested
+    if args.theory:
+        # Compute delta_x from pulse locations
+        x_pulse_sorted = results["x_pulse_sorted"]
+        if len(x_pulse_sorted) > 1:
+            delta_x = np.mean(np.diff(x_pulse_sorted))
+        else:
+            delta_x = 1.0  # Default
+
+        generate_theory_comparison(
+            results,
+            fault_length=args.fault_length,
+            delta_x=delta_x,
+            output_dir=args.input_dir,
+        )
 
     plt.show()
 
