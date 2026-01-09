@@ -13,7 +13,7 @@ class Config:
     fault_length_km = 200.0  # Along-strike length (km)
     fault_depth_km = 25.0  # Down-dip depth (km)
     element_size_km = 1.0  # Grid cell size (km)
-    # element_size_km = 0.1  # Grid cell size (km)
+    element_size_km = 0.5  # Grid cell size (km)
 
     # Background moment (slip deficit) rate
     background_slip_rate_mm_yr = 10.0  # mm/year
@@ -33,14 +33,14 @@ class Config:
 
     # Magnitude dependent spatial probability
     gamma_min = 0.0  # Small events anywhere
-    gamma_max = 8.0  # Large events need a pool of moment
+    gamma_max = 1.5  # Large events need a pool of moment
     alpha_spatial = 0.35  # Decay rate
     M_min = 5.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
     # Adaptive rate correction
     adaptive_correction_enabled = (
-        False  # Enable adaptive correction (True = drives coupling toward 1.0)
+        True  # Enable adaptive correction (True = drives coupling toward 1.0)
     )
     adaptive_correction_gain = (
         5.0  # Proportional control gain for coupling correction (continuous updates)
@@ -122,7 +122,7 @@ class Config:
     time_step_years = 1.0  # Time resolution (years)
 
     # Random seed for reproducibility
-    random_seed = 42
+    random_seed = 43
 
     # Output
     output_dir = "results"
