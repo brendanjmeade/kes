@@ -1,15 +1,15 @@
 """
-Theoretical framework for η (entropy-normalized transition density)
+Theoretical framework for eta (entropy-normalized transition density)
 with comparison to KES simulation results.
 
 Theory:
-    η = ρ_T / H
+    eta = rho_T / H
 
-    where ρ_T is the transition density (transitions per km of pulse shift)
+    where rho_T is the transition density (transitions per km of pulse shift)
     and H is the conditional entropy of the MaxEnt distribution.
 
     The theoretical maximum occurs when transitions happen every pulse step:
-        η_max = 1 / (Δx_pulse * H)
+        eta_max = 1 / (delta_x_pulse * H)
 
     A more complete model accounts for basin structure in probability space.
 """
@@ -18,14 +18,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, Tuple
 
-# =============================================================================
-# Theoretical Models
-# =============================================================================
+# Theoretical models
 
 
 def eta_maximum(delta_x: float, H: float) -> float:
     """
-    Theoretical maximum η when transitions occur every pulse step.
+    Theoretical maximum eta when transitions occur every pulse step.
 
     Parameters
     ----------
@@ -69,11 +67,11 @@ def transition_density_model(delta_x: float, ell_b: float) -> float:
     """
     Theoretical transition density as function of perturbation scale.
 
-    Model: ρ_T = (1/ℓ_b) * (1 - exp(-Δx/ℓ_b))
+    Model: rho_T = (1/ell_b) * (1 - exp(-delta_x/ell_b))
 
     Limits:
-        Δx << ℓ_b: ρ_T ≈ Δx/ℓ_b² (rare transitions)
-        Δx >> ℓ_b: ρ_T ≈ 1/ℓ_b (saturated)
+        delta_x << ell_b: rho_T ~= delta_x/ell_b^2 (rare transitions)
+        delta_x >> ell_b: rho_T ~= 1/ell_b (saturated)
 
     Parameters
     ----------
@@ -92,7 +90,7 @@ def transition_density_model(delta_x: float, ell_b: float) -> float:
 
 def eta_model(delta_x: float, H: float, ell_b: float) -> float:
     """
-    Full theoretical model for η.
+    Full theoretical model for eta.
 
     Parameters
     ----------
@@ -115,7 +113,7 @@ def eta_vs_perturbation_scale(
     delta_x_array: np.ndarray, H: float, ell_b: float
 ) -> np.ndarray:
     """
-    Compute η across a range of perturbation scales.
+    Compute eta across a range of perturbation scales.
     """
     return np.array([eta_model(dx, H, ell_b) for dx in delta_x_array])
 
@@ -124,7 +122,7 @@ def eta_vs_entropy(
     H_array: np.ndarray, delta_x: float, L: float, alpha: float = 1.0
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Compute η and η_max across a range of entropies.
+    Compute eta and eta_max across a range of entropies.
 
     Returns
     -------
@@ -145,9 +143,7 @@ def eta_vs_entropy(
     return eta, eta_max
 
 
-# =============================================================================
 # Visualization
-# =============================================================================
 
 
 def plot_eta_theory_comparison(
@@ -159,7 +155,7 @@ def plot_eta_theory_comparison(
     figsize: Tuple[int, int] = (14, 10),
 ) -> plt.Figure:
     """
-    Create comparison plots of theoretical η vs simulation results.
+    Create comparison plots of theoretical eta vs simulation results.
 
     Parameters
     ----------
@@ -181,9 +177,7 @@ def plot_eta_theory_comparison(
     H_theory = np.linspace(H_range[0], H_range[1], 100)
     N_eff_theory = np.exp(H_theory)
 
-    # =========================================================================
-    # Panel 1: η vs Entropy
-    # =========================================================================
+    # Panel 1: eta vs entropy
     ax = axes[0, 0]
 
     # Theoretical curves
@@ -196,7 +190,7 @@ def plot_eta_theory_comparison(
         lw=1,
         label=r"$\eta_{max}$",
     )
-    # ax.plot(H_theory, eta_theory, "b-", lw=2, label=f"Model (L={L} km, α={alpha})")
+    # ax.plot(H_theory, eta_theory, "b-", lw=2, label=f"Model (L={L} km, alpha={alpha})")
     # ax.fill_between(H_theory, eta_theory, eta_max_theory, alpha=0.2, color="blue")
 
     # Simulation results
@@ -218,16 +212,14 @@ def plot_eta_theory_comparison(
 
     ax.set_xlabel("$H$ (nats)", fontsize=12)
     ax.set_ylabel(r"$\eta$ (transitions / km / nat)", fontsize=12)
-    # ax.set_title("η vs Entropy", fontsize=14)
+    # ax.set_title("eta vs Entropy", fontsize=14)
     # ax.legend(loc="upper right")
     ax.set_xlim([3, 9])
     ax.set_ylim([0, 0.4])
     ax.set_box_aspect(1)
     ax.grid(False)
 
-    # =========================================================================
-    # Panel 2: η vs Perturbation Scale
-    # =========================================================================
+    # Panel 2: eta vs perturbation scale
     ax = axes[0, 1]
 
     # Use mean H from simulations or default
@@ -246,7 +238,7 @@ def plot_eta_theory_comparison(
 
     ax.loglog(delta_x_array, eta_max_vs_dx, "k--", lw=2, label=r"$\eta_{max}$")
     ax.loglog(
-        delta_x_array, eta_vs_dx, "b-", lw=2, label=f"Model (ℓ_b = {ell_b:.2f} km)"
+        delta_x_array, eta_vs_dx, "b-", lw=2, label=f"Model (ell_b = {ell_b:.2f} km)"
     )
 
     # Mark the simulation point
@@ -259,22 +251,20 @@ def plot_eta_theory_comparison(
             s=150,
             marker="*",
             zorder=5,
-            label=f"Simulation (Δx={delta_x} km)",
+            label=f"Simulation (delta_x={delta_x} km)",
         )
 
     # Mark characteristic scales
-    ax.axvline(ell_b, color="green", ls=":", lw=2, alpha=0.7, label=f"Basin size ℓ_b")
+    ax.axvline(ell_b, color="green", ls=":", lw=2, alpha=0.7, label=f"Basin size ell_b")
 
     ax.set_xlabel(r"Perturbation scale $\Delta x$ (km)", fontsize=12)
     ax.set_ylabel(r"$\eta$ (transitions/km/nat)", fontsize=12)
-    ax.set_title(f"η vs Perturbation Scale (H = {H_mean:.1f})", fontsize=14)
+    ax.set_title(f"eta vs Perturbation Scale (H = {H_mean:.1f})", fontsize=14)
     ax.legend(loc="upper right")
     ax.grid(True, alpha=0.3, which="both")
     ax.set_xlim([0.1, 100])
 
-    # =========================================================================
-    # Panel 3: Efficiency η/η_max vs Entropy
-    # =========================================================================
+    # Panel 3: efficiency eta/eta_max vs entropy
     ax = axes[1, 0]
 
     efficiency_theory = eta_theory / eta_max_theory
@@ -303,9 +293,7 @@ def plot_eta_theory_comparison(
     ax.legend(loc="lower right")
     ax.grid(True, alpha=0.3)
 
-    # =========================================================================
-    # Panel 4: Basin Size vs N_eff
-    # =========================================================================
+    # Panel 4: basin size vs N_eff
     ax = axes[1, 1]
 
     ell_b_theory = basin_size(L, N_eff_theory, alpha)
@@ -349,10 +337,10 @@ def plot_regime_diagram(
     L: float = 150.0, figsize: Tuple[int, int] = (10, 8)
 ) -> plt.Figure:
     """
-    Create a regime diagram showing where different η behaviors occur.
+    Create a regime diagram showing where different eta behaviors occur.
 
-    Axes: Perturbation scale (Δx) vs Entropy (H)
-    Coloring: η value
+    Axes: Perturbation scale (delta_x) vs Entropy (H)
+    Coloring: eta value
     """
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -394,7 +382,7 @@ def plot_regime_diagram(
 
     ax.set_xlabel("Entropy H (nats)", fontsize=12)
     ax.set_ylabel(r"Perturbation scale $\Delta x$ (km)", fontsize=12)
-    ax.set_title(f"η Regime Diagram (L = {L} km)", fontsize=14)
+    ax.set_title(f"eta Regime Diagram (L = {L} km)", fontsize=14)
     ax.legend(loc="upper left")
 
     # Annotate regions
@@ -414,9 +402,7 @@ def plot_regime_diagram(
     return fig
 
 
-# =============================================================================
-# Main: Example usage with synthetic or real data
-# =============================================================================
+# Main: example usage with synthetic or real data
 
 if __name__ == "__main__":
     # Example simulation results (replace with actual data)
@@ -433,9 +419,9 @@ if __name__ == "__main__":
     delta_x = 1.0  # Pulse step size (km)
 
     # Fit alpha to match observations
-    # At saturation: eta ≈ 1/(ell_b * H) ≈ eta_obs
-    # So: ell_b ≈ 1/(eta_obs * H)
-    # And: alpha ≈ ell_b * sqrt(N_eff) / L
+    # At saturation: eta ~= 1/(ell_b * H) ~= eta_obs
+    # So: ell_b ~= 1/(eta_obs * H)
+    # And: alpha ~= ell_b * sqrt(N_eff) / L
     H_mean = np.mean(simulation_results["H"])
     N_eff_mean = np.mean(simulation_results["N_eff"])
     eta_mean = np.mean(simulation_results["eta"])

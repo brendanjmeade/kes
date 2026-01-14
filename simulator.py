@@ -50,7 +50,7 @@ def run_simulation(config):
     """
     Run full earthquake simulation with adaptive moment-based rate generation
 
-    Uses λ(t) = C × correction_factor(t) × moment_deficit(t)
+    Uses lambda(t) = C * correction_factor(t) * moment_deficit(t)
     The correction factor adapts to maintain moment balance
 
     Returns:
@@ -107,16 +107,16 @@ def run_simulation(config):
     # Deterministic accumulator for fractional events
     event_debt = 0.0
     event_debt_history = []  # Track debt over time for visualization
-    lambda_history = []  # Track instantaneous rate λ(t) for visualization
+    lambda_history = []  # Track instantaneous rate lambda(t) for visualization
 
     # Afterslip sequence tracking
     afterslip_sequences = []  # Track active afterslip sequences
     afterslip_cumulative = np.zeros(config.n_elements)  # Total afterslip over simulation
 
-    # Track cumulative geometric moment (m³) for rate calculation
+    # Track cumulative geometric moment (m^3) for rate calculation
     # m_current is in meters (slip deficit), multiply by area to get geometric moment
     initial_slip_deficit = np.sum(m_current)  # Total slip deficit (m)
-    initial_geom_moment = np.sum(m_current * config.element_area_m2)  # Geometric moment (m³)
+    initial_geom_moment = np.sum(m_current * config.element_area_m2)  # Geometric moment (m^3)
     cumulative_loading = 0.0  # Start at zero, accumulate geometric moment over time
     cumulative_release = 0.0  # No events yet
 
@@ -138,8 +138,8 @@ def run_simulation(config):
     print(f"  Time step size: {config.time_step_years} years")
     print("  Event generation: Deterministic accumulator")
     print(f"  Initial slip deficit: {initial_slip_deficit:.2e} m")
-    print(f"  Initial geometric moment: {initial_geom_moment:.2e} m³")
-    print(f"  Cumulative loading accounting: starts at 0.0 m³")
+    print(f"  Initial geometric moment: {initial_geom_moment:.2e} m^3")
+    print(f"  Cumulative loading accounting: starts at 0.0 m^3")
     if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
         print(f"  Rate correction: CONTINUOUS (updated every timestep)")
     else:
@@ -185,13 +185,13 @@ def run_simulation(config):
         # Accumulate slip deficit (m_current is in meters)
         m_current = accumulate_moment(m_current, slip_rate, dt_years)
 
-        # Update cumulative loading (geometric moment in m³)
-        # slip_rate (m/yr) * area (m²) * dt (yr) = m³
+        # Update cumulative loading (geometric moment in m^3)
+        # slip_rate (m/yr) * area (m^2) * dt (yr) = m^3
         geom_moment_added = np.sum(slip_rate * config.element_area_m2) * dt_years
         cumulative_loading += geom_moment_added
 
         # Update Ornstein-Uhlenbeck perturbation process (before computing rate)
-        # dX = -θ X dt + σ sqrt(dt) dW
+        # dX = -theta * X * dt + sigma * sqrt(dt) * dW
         if hasattr(config, 'perturbation_type') and config.perturbation_type == "ornstein_uhlenbeck":
             config.perturbation_state -= config.perturbation_theta * config.perturbation_state * dt_years
             config.perturbation_state += config.perturbation_sigma * np.sqrt(dt_years) * np.random.randn()
@@ -216,7 +216,7 @@ def run_simulation(config):
         # Store instantaneous rate
         lambda_history.append(lambda_t)
 
-        # Generate integer number of events when debt ≥ 1
+        # Generate integer number of events when debt >= 1
         n_events = int(event_debt)
         event_debt -= n_events
 
@@ -280,7 +280,7 @@ def run_simulation(config):
             #     # Print progress
             #     if len(event_history) == 1:
             #         tqdm.write(
-            #             f"Event 1: t={current_time:.2f} yr, M={M_actual:.2f}, λ={lambda_t:.6f}/yr"
+            #             f"Event 1: t={current_time:.2f} yr, M={M_actual:.2f}, lambda={lambda_t:.6f}/yr"
             #         )
             #     elif len(event_history) % 100 == 0:
             #         tqdm.write(
@@ -363,12 +363,12 @@ def run_simulation(config):
                 # Print progress
                 if len(event_history) == 1:
                     tqdm.write(
-                        f"Event 1: t={current_time:.2f} yr, M={M_actual:.2f}, λ={lambda_t:.6f}/yr"
+                        f"Event 1: t={current_time:.2f} yr, M={M_actual:.2f}, lambda={lambda_t:.6f}/yr"
                     )
                 elif len(event_history) % 100 == 0:
                     aftershock_info = ""
                     if components["aftershock"] > 0:
-                        aftershock_info = f", aftershock λ={components['aftershock']:.4f}/yr ({components['n_active_sequences']} sequences)"
+                        aftershock_info = f", aftershock lambda={components['aftershock']:.4f}/yr ({components['n_active_sequences']} sequences)"
                     tqdm.write(
                         f"Event {len(event_history)}: t={current_time:.2f} yr, M={M_actual:.2f}, "
                         f"coupling={cumulative_release / cumulative_loading:.3f}{aftershock_info}"
@@ -380,7 +380,7 @@ def run_simulation(config):
                         config.omori_alpha * (M_actual - config.omori_M_ref)
                     )
                     tqdm.write(
-                        f"  → Large event (M={M_actual:.2f}) will trigger aftershocks with productivity K={K:.3f} events/yr"
+                        f"  -> Large event (M={M_actual:.2f}) will trigger aftershocks with productivity K={K:.3f} events/yr"
                     )
             # Update m_current with all releases from this timestep
             m_current = m_working
@@ -428,9 +428,9 @@ def run_simulation(config):
             print(f"  Final correction factor: {config.rate_correction_factor:.4f}")
         else:
             print(f"  Correction factor: {config.rate_correction_factor:.4f} (fixed, no adaptation)")
-        print(f"  Cumulative loading: {cumulative_loading:.2e} m³")
-        print(f"  Cumulative release: {cumulative_release:.2e} m³")
-        print(f"  Final deficit: {cumulative_loading - cumulative_release:.2e} m³")
+        print(f"  Cumulative loading: {cumulative_loading:.2e} m^3")
+        print(f"  Cumulative release: {cumulative_release:.2e} m^3")
+        print(f"  Final deficit: {cumulative_loading - cumulative_release:.2e} m^3")
         print(f"  Geometric coupling: {cumulative_release / cumulative_loading:.4f}")
     else:
         print(f"  WARNING: No events generated!")

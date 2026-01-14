@@ -349,10 +349,10 @@ def plot_evolution_overview(results, config):
     plt.gca().tick_params(axis="both", labelsize=FONTSIZE)
     plt.legend(loc="upper left", fontsize=FONTSIZE - 2)
 
-    # Expected events (1-year rolling window from λ(t))
+    # Expected events (1-year rolling window from lambda(t))
     plt.subplot(3, 1, 2)
 
-    # Load \rho(t) time series that was stored during simulation
+    # Load lambda(t) time series that was stored during simulation
     lambda_times = results["times"]
     lambda_values = results["lambda_history"]
 
@@ -632,10 +632,10 @@ def plot_moment_snapshots(
 
         # RECONSTRUCT spatial quantities (like moment_budget.png does for scalars)
         # Loading: always increases linearly with time
-        spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m³
+        spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m^3
 
         # Release: step function at earthquakes
-        spatial_release = release_snapshots[idx] * config.element_area_m2  # m³
+        spatial_release = release_snapshots[idx] * config.element_area_m2  # m^3
 
         # Select data based on plot type
         if plot_type == "release":
@@ -788,7 +788,7 @@ def create_moment_animation(results, config):
     max_afterslip_elem = np.max(afterslip_snapshots[-1])  # Maximum at final time (m)
     max_afterslip_scaled = scale(
         max_afterslip_elem * config.element_area_m2
-    )  # Scale to m³
+    )  # Scale to m^3
     vmin_afterslip = 0.0
     # Prevent zero range when afterslip is disabled or zero
     vmax_afterslip = max(max_afterslip_scaled, 1e-10)
@@ -812,9 +812,9 @@ def create_moment_animation(results, config):
     snapshot_idx = annual_indices[0]
     actual_time = snapshot_times[snapshot_idx]
 
-    # ===== PANEL 1 (TOP): Moment Deficit =====
-    spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m³
-    spatial_release = release_snapshots[snapshot_idx] * config.element_area_m2  # m³
+    # Panel 1 (top): moment deficit
+    spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m^3
+    spatial_release = release_snapshots[snapshot_idx] * config.element_area_m2  # m^3
     deficit = spatial_loading - spatial_release
 
     deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
@@ -842,8 +842,8 @@ def create_moment_animation(results, config):
     # Add colorbar
     cbar1 = plt.colorbar(contourf_deficit, ax=ax1)
 
-    # ===== PANEL 2 (BOTTOM): Afterslip Cumulative Release =====
-    spatial_afterslip = afterslip_snapshots[snapshot_idx] * config.element_area_m2  # m³
+    # Panel 2 (bottom): afterslip cumulative release
+    spatial_afterslip = afterslip_snapshots[snapshot_idx] * config.element_area_m2  # m^3
     afterslip_grid = spatial_afterslip.reshape(
         mesh["n_along_strike"], mesh["n_down_dip"]
     ).T
@@ -896,9 +896,9 @@ def create_moment_animation(results, config):
         snapshot_idx = annual_indices[frame]
         actual_time = snapshot_times[snapshot_idx]
 
-        # ===== PANEL 1: Moment Deficit =====
-        spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m³
-        spatial_release = release_snapshots[snapshot_idx] * config.element_area_m2  # m³
+        # Panel 1: moment deficit
+        spatial_loading = slip_rate * config.element_area_m2 * actual_time  # m^3
+        spatial_release = release_snapshots[snapshot_idx] * config.element_area_m2  # m^3
         deficit = spatial_loading - spatial_release
 
         deficit_grid = deficit.reshape(mesh["n_along_strike"], mesh["n_down_dip"]).T
@@ -920,10 +920,10 @@ def create_moment_animation(results, config):
             f"$m_\\mathrm{{a}} - m_\\mathrm{{r}}$, $t$ = {actual_time:.1f} years"
         )
 
-        # ===== PANEL 2: Afterslip Cumulative Release =====
+        # Panel 2: afterslip cumulative release
         spatial_afterslip = (
             afterslip_snapshots[snapshot_idx] * config.element_area_m2
-        )  # m³
+        )  # m^3
         afterslip_grid = spatial_afterslip.reshape(
             mesh["n_along_strike"], mesh["n_down_dip"]
         ).T
@@ -1017,7 +1017,7 @@ def plot_loading_and_earthquakes(results, config):
         moment_ref = 1e6  # Reference moment for scaling
         size_ref = 20  # Reference area in points^2
 
-        # Area ∝ moment
+        # Area proportional to moment
         sizes = size_ref * (geom_moments / moment_ref)
         sizes *= 0.01
 

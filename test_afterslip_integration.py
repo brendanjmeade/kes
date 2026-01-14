@@ -82,8 +82,8 @@ def main():
     # Check coupling
     coupling = results["cumulative_release"] / results["cumulative_loading"]
     print(f"\nMoment balance:")
-    print(f"  Cumulative loading: {results['cumulative_loading']:.2e} m³")
-    print(f"  Cumulative release: {results['cumulative_release']:.2e} m³")
+    print(f"  Cumulative loading: {results['cumulative_loading']:.2e} m^3")
+    print(f"  Cumulative release: {results['cumulative_release']:.2e} m^3")
     print(f"  Coupling: {coupling:.3f}")
 
     # Sanity checks
@@ -95,29 +95,29 @@ def main():
 
     # Check 1: Slip deficit should be in reasonable range (0 to ~10 m)
     if m_final.min() >= 0 and m_final.max() < 100:
-        print("✓ Slip deficit in reasonable range")
+        print("[OK] Slip deficit in reasonable range")
     else:
-        print(f"✗ Slip deficit out of range: [{m_final.min():.2f}, {m_final.max():.2f}]")
+        print(f"[FAIL] Slip deficit out of range: [{m_final.min():.2f}, {m_final.max():.2f}]")
         passed = False
 
     # Check 2: Coupling should be close to 1.0 (within 0.5-1.5)
     if 0.5 < coupling < 1.5:
-        print("✓ Coupling in reasonable range")
+        print("[OK] Coupling in reasonable range")
     else:
-        print(f"✗ Coupling out of range: {coupling:.3f}")
+        print(f"[FAIL] Coupling out of range: {coupling:.3f}")
         passed = False
 
     # Check 3: Should have some events
     if len(event_history) > 0:
-        print(f"✓ Generated {len(event_history)} events")
+        print(f"[OK] Generated {len(event_history)} events")
     else:
-        print("✗ No events generated")
+        print("[FAIL] No events generated")
         passed = False
 
     if passed:
-        print("\n✓ All sanity checks passed!")
+        print("\n[OK] All sanity checks passed!")
     else:
-        print("\n✗ Some sanity checks failed - review output above")
+        print("\n[FAIL] Some sanity checks failed - review output above")
 
     return passed
 

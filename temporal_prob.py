@@ -12,7 +12,7 @@ def compute_expected_moment_per_event(config):
     """
     Compute expected geometric moment per event from G-R distribution
 
-    Integrates moment × probability over the magnitude range to get
+    Integrates moment * probability over the magnitude range to get
     the average moment released per event, accounting for:
     - G-R distribution (b-value)
     - Magnitude bounds [M_min, M_max]
@@ -26,24 +26,24 @@ def compute_expected_moment_per_event(config):
     Returns:
     --------
     expected_geom_moment : float
-        Expected geometric moment per event (m³)
+        Expected geometric moment per event (m^3)
     """
     # Sample magnitude range finely
     M_array = np.linspace(config.M_min, config.M_max, 1000)
     dM = M_array[1] - M_array[0]
 
     # Gutenberg-Richter probability density
-    # P(M) ∝ 10^(-b×M)
+    # P(M) proportional to 10^(-b*M)
     # Normalize over [M_min, M_max]
     b = config.b_value
     P_unnormalized = 10 ** (-b * M_array)
     P_normalized = P_unnormalized / (np.sum(P_unnormalized) * dM)
 
     # Convert magnitudes to geometric moments
-    M0_array = magnitude_to_seismic_moment(M_array)  # N·m (seismic)
-    geom_moment_array = M0_array / config.shear_modulus_Pa  # m³ (geometric)
+    M0_array = magnitude_to_seismic_moment(M_array)  # N-m (seismic)
+    geom_moment_array = M0_array / config.shear_modulus_Pa  # m^3 (geometric)
 
-    # Expected value: E[M] = ∫ M × P(M) dM
+    # Expected value: E[M] = integral of M * P(M) dM
     expected_geom_moment = np.sum(geom_moment_array * P_normalized * dM)
 
     return expected_geom_moment
@@ -66,7 +66,7 @@ def compute_rate_parameters(config):
     Returns:
     --------
     C : float
-        Base rate coefficient (events/year per m³ of accumulated moment)
+        Base rate coefficient (events/year per m^3 of accumulated moment)
     """
 
     # Estimate equilibrium accumulated moment
@@ -77,10 +77,10 @@ def compute_rate_parameters(config):
     # Method 1: Analytical from G-R distribution (NEW - better!)
     expected_geom_moment_per_event = compute_expected_moment_per_event(config)
 
-    # Estimate equilibrium: balance requires loading_rate = lambda × <M_event>
-    # At equilibrium with deficit D: lambda = C × D
-    # So: loading_rate = C × D × <M_event>
-    # Assuming D ≈ half-cycle worth of moment
+    # Estimate equilibrium: balance requires loading_rate = lambda * <M_event>
+    # At equilibrium with deficit D: lambda = C * D
+    # So: loading_rate = C * D * <M_event>
+    # Assuming D ~= half-cycle worth of moment
     M0_char = magnitude_to_seismic_moment(config.M_max)
     geom_moment_char = M0_char / config.shear_modulus_Pa
     recurrence_time_char = geom_moment_char / geom_loading_rate
@@ -97,9 +97,9 @@ def compute_rate_parameters(config):
         lambda_target = 0.2  # few large events
 
     # Compute C using analytical expected moment
-    # At equilibrium: geom_loading_rate = lambda_target × expected_moment_per_event
-    # And lambda_target = C × geom_moment_equilibrium
-    # So: C = geom_loading_rate / (geom_moment_equilibrium × expected_moment_per_event)
+    # At equilibrium: geom_loading_rate = lambda_target * expected_moment_per_event
+    # And lambda_target = C * geom_moment_equilibrium
+    # So: C = geom_loading_rate / (geom_moment_equilibrium * expected_moment_per_event)
     C_analytical = geom_loading_rate / (geom_moment_equilibrium * expected_geom_moment_per_event)
 
     # Method 2: Old approach using M_max (kept for comparison)
@@ -124,25 +124,25 @@ def compute_rate_parameters(config):
     print("\n" + "=" * 70)
     print("MOMENT-BASED RATE MODEL")
     print("=" * 70)
-    print(f"  Geometric loading rate: {geom_loading_rate:.2e} m³/yr")
+    print(f"  Geometric loading rate: {geom_loading_rate:.2e} m^3/yr")
     print(
-        f"  Seismic loading rate: {config.shear_modulus_Pa * geom_loading_rate:.2e} N·m/yr"
+        f"  Seismic loading rate: {config.shear_modulus_Pa * geom_loading_rate:.2e} N-m/yr"
     )
-    print(f"  Characteristic M_max event: M {config.M_max:.1f} ({M0_char:.2e} N·m)")
+    print(f"  Characteristic M_max event: M {config.M_max:.1f} ({M0_char:.2e} N-m)")
     print(f"  Estimated recurrence time: {recurrence_time_char:.1f} years")
-    print(f"\n  Equilibrium accumulated moment: {geom_moment_equilibrium:.2e} m³")
-    print(f"  Expected moment per event (G-R analytical): {expected_geom_moment_per_event:.2e} m³")
+    print(f"\n  Equilibrium accumulated moment: {geom_moment_equilibrium:.2e} m^3")
+    print(f"  Expected moment per event (G-R analytical): {expected_geom_moment_per_event:.2e} m^3")
     print(f"  Target rate at equilibrium: {lambda_target:.3f} events/year")
-    print(f"\n  Base rate coefficient C (analytical): {C:.3e} (events/yr)/(m³)")
-    print(f"  Base rate coefficient C (old method): {C_old:.3e} (events/yr)/(m³)")
+    print(f"\n  Base rate coefficient C (analytical): {C:.3e} (events/yr)/(m^3)")
+    print(f"  Base rate coefficient C (old method): {C_old:.3e} (events/yr)/(m^3)")
     print(f"  Improvement ratio: {C_old/C:.2f}x")
-    print(f"\n  λ(t) = λ_background + C × correction_factor(t) × moment_deficit(t) + λ_aftershock(t) + λ_perturbation(t)")
+    print(f"\n  lambda(t) = lambda_background + C * correction_factor(t) * moment_deficit(t) + lambda_aftershock(t) + lambda_perturbation(t)")
 
     # Print adaptive correction status
     if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
         print(f"  ADAPTIVE CORRECTION: ENABLED (continuous updates every timestep)")
         print(f"    Gain: {config.adaptive_correction_gain}")
-        print(f"    Will drive coupling → 1.0")
+        print(f"    Will drive coupling -> 1.0")
     else:
         print(f"  ADAPTIVE CORRECTION: DISABLED (fixed C, natural coupling)")
         print(f"    Coupling will depend on G-R distribution and slip heterogeneity")
@@ -150,32 +150,32 @@ def compute_rate_parameters(config):
     # Print Omori aftershock parameters if enabled
     if hasattr(config, "omori_enabled") and config.omori_enabled:
         print(f"\n  OMORI AFTERSHOCKS ENABLED:")
-        print(f"    Law: λ_aftershock = K / (t + c)^p")
+        print(f"    Law: lambda_aftershock = K / (t + c)^p")
         print(f"    p = {config.omori_p:.2f}")
         print(f"    c = {config.omori_c_years:.6f} years")
         print(f"    K_ref = {config.omori_K_ref:.3f} events/yr (at M={config.omori_M_ref:.1f})")
-        print(f"    α = {config.omori_alpha:.2f} (magnitude scaling)")
+        print(f"    alpha = {config.omori_alpha:.2f} (magnitude scaling)")
         print(f"    Duration: {config.omori_duration_years:.1f} years per sequence")
         K_M7 = config.omori_K_ref * 10 ** (config.omori_alpha * (7.0 - config.omori_M_ref))
-        print(f"    Example: M7.0 → K = {K_M7:.3f} events/yr")
+        print(f"    Example: M7.0 -> K = {K_M7:.3f} events/yr")
     else:
         print(f"\n  OMORI AFTERSHOCKS DISABLED")
 
     # Print background rate if enabled
     if hasattr(config, "lambda_background") and config.lambda_background > 0:
         print(f"\n  BACKGROUND RATE ENABLED:")
-        print(f"    λ_background = {config.lambda_background:.4f} events/yr")
+        print(f"    lambda_background = {config.lambda_background:.4f} events/yr")
 
     # Print perturbation parameters if enabled
     if hasattr(config, "perturbation_type") and config.perturbation_type != "none":
         print(f"\n  RANDOM PERTURBATIONS ENABLED:")
         print(f"    Type: {config.perturbation_type}")
         if config.perturbation_type == "white_noise":
-            print(f"    σ = {config.perturbation_sigma:.4f} events/yr")
+            print(f"    sigma = {config.perturbation_sigma:.4f} events/yr")
         elif config.perturbation_type == "ornstein_uhlenbeck":
             print(f"    Mean: {config.perturbation_mean:.4f} events/yr")
-            print(f"    σ (diffusion): {config.perturbation_sigma:.4f}")
-            print(f"    θ (reversion): {config.perturbation_theta:.2f} /yr")
+            print(f"    sigma (diffusion): {config.perturbation_sigma:.4f}")
+            print(f"    theta (reversion): {config.perturbation_theta:.2f} /yr")
 
     print("=" * 70)
 
@@ -195,9 +195,9 @@ def update_rate_correction(
     -----------
     config : Config object
     cumulative_loading : float
-        Total geometric moment loaded (m³)
+        Total geometric moment loaded (m^3)
     cumulative_release : float
-        Total geometric moment released (m³)
+        Total geometric moment released (m^3)
     current_time : float
         Current simulation time (years)
     dt_years : float
@@ -257,23 +257,23 @@ def earthquake_rate(
     """
     Compute instantaneous earthquake rate based on moment deficit
 
-    λ(t) = C_base × correction_factor(t) × max(0, moment_deficit)
+    lambda(t) = C_base * correction_factor(t) * max(0, moment_deficit)
 
     The correction factor adapts to ensure moment balance
 
     Parameters:
     -----------
     m_current : array
-        Current geometric moment (m³) at each element
+        Current geometric moment (m^3) at each element
     event_history : list
         List of past events
     current_time : float
         Current simulation time (years)
     config : Config object
     cumulative_loading : float
-        Total geometric moment loaded since t=0 (m³)
+        Total geometric moment loaded since t=0 (m^3)
     cumulative_release : float
-        Total geometric moment released by events (m³)
+        Total geometric moment released by events (m^3)
 
     Returns:
     --------
@@ -283,7 +283,7 @@ def earthquake_rate(
         Breakdown of rate components
     """
 
-    # Moment deficit (should always be ≥ 0)
+    # Moment deficit (should always be >= 0)
     moment_deficit = cumulative_loading - cumulative_release
     moment_deficit = max(0.0, moment_deficit)
 
@@ -313,8 +313,8 @@ def earthquake_rate(
             if 0 < dt_years <= config.omori_duration_years:
                 n_active_sequences += 1
 
-                # Omori-Utsu law: λ(t) = K / (t + c)^p
-                # K scales with mainshock magnitude: K = K_ref × 10^(alpha × (M - M_ref))
+                # Omori-Utsu law: lambda(t) = K / (t + c)^p
+                # K scales with mainshock magnitude: K = K_ref * 10^(alpha * (M - M_ref))
                 M_mainshock = event["magnitude"]
                 K = config.omori_K_ref * 10 ** (
                     config.omori_alpha * (M_mainshock - config.omori_M_ref)

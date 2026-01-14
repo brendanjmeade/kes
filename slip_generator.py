@@ -19,7 +19,7 @@ def generate_slip_distribution(hypocenter_idx, magnitude, m_current, mesh, confi
     --------
     slip : (n_elements,) array of coseismic slip (m)
     ruptured_elements : list of element indices that slipped
-    M0_actual : actual seismic moment released (N·m)
+    M0_actual : actual seismic moment released (N-m)
     """
     from moment import magnitude_to_seismic_moment
 
@@ -27,7 +27,7 @@ def generate_slip_distribution(hypocenter_idx, magnitude, m_current, mesh, confi
     M0_target = magnitude_to_seismic_moment(magnitude)
 
     # Expected rupture area (Allen & Hayes 2017 for strike-slip)
-    # log10(A) = M - 3.99  (A in km²)
+    # log10(A) = M - 3.99  (A in km^2)
     log10_area = magnitude - 3.99
     area_km2 = 10**log10_area
     area_m2 = area_km2 * 1e6
@@ -59,10 +59,10 @@ def generate_slip_distribution(hypocenter_idx, magnitude, m_current, mesh, confi
     ]  # m (slip deficit per element)
     total_available_geom_moment = np.sum(
         available_geom_moment_per_element * config.element_area_m2
-    )  # m³ (total geometric moment available)
+    )  # m^3 (total geometric moment available)
 
     # Requested geometric moment for this event
-    requested_geom_moment = M0_target / config.shear_modulus_Pa  # m³
+    requested_geom_moment = M0_target / config.shear_modulus_Pa  # m^3
 
     # If requesting more than available, scale DOWN the entire event uniformly
     if requested_geom_moment > total_available_geom_moment:
@@ -148,7 +148,7 @@ def generate_heterogeneous_slip_pattern(
     max_dist = np.max(distances) if len(distances) > 1 else 1.0
 
     # Slip tapers from hypocenter with some stochasticity
-    # Use exponential decay × random factor
+    # Use exponential decay * random factor
     normalized_dist = distances / max_dist
 
     # Base pattern: exponential taper (rate from config)
@@ -173,7 +173,7 @@ def generate_heterogeneous_slip_pattern(
 # Alternative: Try to adapt SKIES stochastic slip generator
 def generate_slip_skies_style(hypocenter_idx, ruptured_elements, mesh, config):
     """
-    SKIES-style slip generation using Karhunen-Loève expansion
+    SKIES-style slip generation using Karhunen-Loeve expansion
 
     This is more sophisticated - use if time permits
     """

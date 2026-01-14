@@ -25,7 +25,7 @@ def initialize_moment(config, mesh):
 
     print("\nInitializing moment distribution...")
 
-    # === Create spatially heterogeneous slip rate ===
+    # Create spatially heterogeneous slip rate
 
     # Base slip rate (uniform)
     slip_rate = np.ones(config.n_elements) * config.background_slip_rate_m_yr
@@ -79,7 +79,7 @@ def initialize_moment(config, mesh):
             f"  Uniform slip rate: {config.background_slip_rate_m_yr * 1000:.1f} mm/year"
         )
 
-    # === Initialize with partial earthquake cycle ===
+    # Initialize with partial earthquake cycle
 
     # Compute lambda_required from moment balance
     geom_loading_rate = (
@@ -101,7 +101,7 @@ def initialize_moment(config, mesh):
     # Accumulate slip deficit for this equivalent time (units: meters)
     m_current = slip_rate * initial_time_equivalent
 
-    # Compute initial geometric moment for display (m³ = slip * area)
+    # Compute initial geometric moment for display (m^3 = slip * area)
     initial_geom_moment = np.sum(m_current * config.element_area_m2)
     mid_cycle_geom_moment = geom_loading_rate * recurrence_time / 2
 
@@ -110,8 +110,8 @@ def initialize_moment(config, mesh):
         f"  Starting at equivalent time: {initial_time_equivalent:.1f} years into cycle"
     )
     print(f"  Initial total slip deficit: {np.sum(m_current):.2e} m")
-    print(f"  Initial geometric moment: {initial_geom_moment:.2e} m³")
-    print(f"  Mid-cycle geometric moment: {mid_cycle_geom_moment:.2e} m³")
+    print(f"  Initial geometric moment: {initial_geom_moment:.2e} m^3")
+    print(f"  Mid-cycle geometric moment: {mid_cycle_geom_moment:.2e} m^3")
     print(
         f"  Initial as % of mid-cycle: {100 * initial_geom_moment / mid_cycle_geom_moment:.1f}%"
     )
@@ -168,30 +168,30 @@ def geometric_moment_to_seismic_moment(m_geom, element_areas, shear_modulus):
     """
     Convert geometric moment to seismic moment
 
-    M0 = μ x slip x area = μ x (m_geom / area) x area = μ x m_geom
+    M0 = mu * slip * area = mu * (m_geom / area) * area = mu * m_geom
 
-    Geometric moment m = slip x area (dimensions: length^3)
-    Seismic moment M0 = μ x slip x area (dimensions: force x length)
+    Geometric moment m = slip * area (dimensions: length^3)
+    Seismic moment M0 = mu * slip * area (dimensions: force * length)
 
-    So: M0 = μ x m_geom / area x area = μ x m_geom
+    So: M0 = mu * m_geom / area * area = mu * m_geom
 
-    Actually, if m_geom is already slip x area:
-    M0 = μ x (m_geom / area) x area = μ x m_geom
+    Actually, if m_geom is already slip * area:
+    M0 = mu * (m_geom / area) * area = mu * m_geom
 
     Hmm, let me reconsider the definition...
     """
-    # In SKIES, geometric moment is slip × area
-    # So m has dimensions of length³
-    # To get seismic moment: M0 = μ × slip × area = μ × m
-    # But m = slip × area, so this doesn't quite work...
+    # In SKIES, geometric moment is slip * area
+    # So m has dimensions of length^3
+    # To get seismic moment: M0 = mu * slip * area = mu * m
+    # But m = slip * area, so this doesn't quite work...
 
     # Let me check: if m_geom represents total "slip volume"
     # Then to get M0, we need to know the average slip
     # Average slip = m_geom / total_area
-    # M0 = μ × average_slip × total_area = μ × m_geom
+    # M0 = mu * average_slip * total_area = mu * m_geom
 
-    # Actually, for point-wise: m_i = slip_i × area_i
-    # Total M0 = μ × Σ(slip_i × area_i) = μ × Σ m_i
+    # Actually, for point-wise: m_i = slip_i * area_i
+    # Total M0 = mu * sum(slip_i * area_i) = mu * sum(m_i)
 
     M0 = shear_modulus * np.sum(m_geom)
     return M0
@@ -199,9 +199,9 @@ def geometric_moment_to_seismic_moment(m_geom, element_areas, shear_modulus):
 
 def seismic_moment_to_magnitude(M0):
     """
-    Convert seismic moment (N·m) to moment magnitude
+    Convert seismic moment (N-m) to moment magnitude
 
-    M_W = (2/3) × (log10(M0) - 9.05)
+    M_W = (2/3) * (log10(M0) - 9.05)
     """
     M_W = (2.0 / 3.0) * (np.log10(M0) - 9.05)
     return M_W
@@ -209,9 +209,9 @@ def seismic_moment_to_magnitude(M0):
 
 def magnitude_to_seismic_moment(M_W):
     """
-    Convert moment magnitude to seismic moment (N·m)
+    Convert moment magnitude to seismic moment (N-m)
 
-    M0 = 10^(1.5 x M_W + 9.05)
+    M0 = 10^(1.5 * M_W + 9.05)
     """
     M0 = 10 ** (1.5 * M_W + 9.05)
     return M0

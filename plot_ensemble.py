@@ -871,8 +871,8 @@ def plot_ensemble_loading_events_evolution(
         if not np.all(np.isnan(event_x_locations[i])):
             print(f"  Event {i + 1} x-locations: {event_x_locations[i]}")
             print(f"  Event {i + 1} z-locations: {event_z_locations[i]}")
-            print(f"  Event {i + 1} Δx: {event_x_locations[i] - reference_x[i]}")
-            print(f"  Event {i + 1} Δz: {event_z_locations[i] - reference_z[i]}")
+            print(f"  Event {i + 1} delta_x: {event_x_locations[i] - reference_x[i]}")
+            print(f"  Event {i + 1} delta_z: {event_z_locations[i] - reference_z[i]}")
             print(f"  Event {i + 1} magnitudes: {event_magnitudes[i]}")
             print(f"  Event {i + 1} moments: {event_moments[i]}")
 
@@ -1004,7 +1004,7 @@ def plot_ensemble_loading_events_evolution(
     # Print summary statistics
     print("\nEvent location changes (km) relative to first run:")
     print(f"  Pulse location: {pulse_locations[0]:.1f} km (reference)")
-    print(f"  Pulse delta range: {pulse_delta.min():.1f} → {pulse_delta.max():.1f} km")
+    print(f"  Pulse delta range: {pulse_delta.min():.1f} -> {pulse_delta.max():.1f} km")
     for i in range(n_events):
         if not np.isnan(reference_x[i]) and not np.isnan(reference_z[i]):
             delta_x = event_x_locations[i] - reference_x[i]
@@ -1012,8 +1012,8 @@ def plot_ensemble_loading_events_evolution(
             valid = ~np.isnan(delta_x) & ~np.isnan(delta_z)
             if valid.any():
                 print(
-                    f"  Event {i + 1}: Δx = {delta_x[valid].min():.2f} → {delta_x[valid].max():.2f} km, "
-                    f"Δz = {delta_z[valid].min():.2f} → {delta_z[valid].max():.2f} km "
+                    f"  Event {i + 1}: delta_x = {delta_x[valid].min():.2f} -> {delta_x[valid].max():.2f} km, "
+                    f"delta_z = {delta_z[valid].min():.2f} -> {delta_z[valid].max():.2f} km "
                     f"(ref: x={reference_x[i]:.1f}, z={reference_z[i]:.1f} km)"
                 )
 

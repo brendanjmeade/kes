@@ -9,13 +9,13 @@ from afterslip import initialize_afterslip_sequence, update_afterslip_sequences
 class Config:
     """Simulation configuration"""
 
-    # === GEOMETRY ===
+    # Geometry
     fault_length_km = 200.0  # Along-strike length (km)
     fault_depth_km = 25.0  # Down-dip depth (km)
     # element_size_km = 1.0  # Grid cell size (km)
     element_size_km = 0.1  # Grid cell size (km)
 
-    # === MOMENT ACCUMULATION ===
+    # Moment accumulation
     # Background slip deficit rate
     background_slip_rate_mm_yr = 10.0  # mm/year
 
@@ -29,17 +29,17 @@ class Config:
         }
     ]
 
-    # === PHYSICAL PARAMETERS ===
+    # Physical parameters
     shear_modulus_Pa = 3e10  # Pa (30 GPa)
 
-    # === MAGNITUDE-DEPENDENT SPATIAL PROBABILITY ===
+    # Magnitude-dependent spatial probability
     gamma_min = 0.5  # Small events (SOC)
     gamma_max = 1.5  # Large events (G-R)
     alpha_spatial = 0.35  # Decay rate
     M_min = 5.0  # Minimum magnitude
     M_max = 8.0  # Maximum magnitude
 
-    # === ADAPTIVE RATE CORRECTION ===
+    # Adaptive rate correction
     adaptive_correction_enabled = (
         True  # Enable adaptive correction (True = drives coupling toward 1.0)
     )
@@ -49,9 +49,9 @@ class Config:
     correction_factor_min = 0.1  # Minimum allowed correction factor
     correction_factor_max = 10.0  # Maximum allowed correction factor
 
-    # === OMORI AFTERSHOCK PARAMETERS ===
-    # Standard Omori-Utsu law: λ_aftershock(t) = K / (t + c)^p
-    # where K scales with mainshock magnitude: K = K_ref × 10^(alpha × (M - M_ref))
+    # Omori aftershock parameters
+    # Standard Omori-Utsu law: lambda_aftershock(t) = K / (t + c)^p
+    # where K scales with mainshock magnitude: K = K_ref * 10^(alpha * (M - M_ref))
     omori_enabled = True  # Enable/disable aftershock sequences
     omori_p = 1.0  # Decay exponent (typically ~1.0)
     omori_c_years = 1.0 / 365.25  # Time offset in years (~0.00274 years = 1 day)
@@ -62,10 +62,10 @@ class Config:
         10.0  # Only track aftershocks for this many years after mainshock
     )
 
-    # === BACKGROUND RATE ===
+    # Background rate
     lambda_background = 0.0  # Constant background rate (events/year, default disabled)
 
-    # === RANDOM PERTURBATIONS ===
+    # Random perturbations
     perturbation_type = "none"  # Options: "none", "white_noise", "ornstein_uhlenbeck"
     perturbation_sigma = (
         0.01  # White noise: std dev (events/yr); OU: diffusion coefficient
@@ -73,45 +73,45 @@ class Config:
     perturbation_mean = 0.0  # OU process only: mean perturbation level (events/yr)
     perturbation_theta = 1.0  # OU process only: reversion rate (1/years)
 
-    # === AFTERSLIP PARAMETERS ===
+    # Afterslip parameters
     # MaxEnt afterslip model: aseismic creep following coseismic events
-    # Spatial activation Φ(x,y) also controls aftershock localization
+    # Spatial activation Phi(x,y) also controls aftershock localization
     afterslip_enabled = True  # Enable/disable afterslip physics
     afterslip_v_ref_m_yr = 0.5  # Reference initial velocity (m/yr) at M_ref
     afterslip_M_ref = 7.0  # Reference magnitude for velocity scaling
     afterslip_beta = 0.33  # Magnitude scaling exponent (1/3 from MaxEnt theory)
     afterslip_correlation_length_x_km = (
-        5.0  # Spatial correlation length ξ_x (along-strike)
+        5.0  # Spatial correlation length xi_x (along-strike)
     )
-    afterslip_correlation_length_z_km = 5.0  # Spatial correlation length ξ_z (down-dip)
+    afterslip_correlation_length_z_km = 5.0  # Spatial correlation length xi_z (down-dip)
     afterslip_kernel_type = "exponential"  # 'exponential' or 'power_law'
     afterslip_power_law_exponent = 2.5  # Exponent if using power_law kernel
     afterslip_duration_years = 10.0  # Track sequences for this many years
     afterslip_m_critical = 0.01  # Minimum residual moment for afterslip (m)
     afterslip_v_min = 1e-6  # Minimum velocity for numerical stability (m/yr)
-    afterslip_M_min = 6.0  # Only trigger afterslip for M ≥ this threshold [RAISED]
+    afterslip_M_min = 6.0  # Only trigger afterslip for M >= this threshold [RAISED]
     afterslip_spatial_threshold = (
         0.3  # Only allow afterslip where Phi > threshold [NEW]
     )
 
-    # === MOMENT INITIALIZATION ===
+    # Moment initialization
     spinup_fraction = 0.25  # Initialize with this fraction of mid-cycle moment (0.25 = recurrence_time/4)
 
-    # === SLIP DISTRIBUTION ===
+    # Slip distribution
     slip_decay_rate = 2.0  # Exponential decay rate of slip from hypocenter
-    slip_heterogeneity = 0.3  # Random perturbation amplitude (±30%)
+    slip_heterogeneity = 0.3  # Random perturbation amplitude (+/-30%)
 
-    # === GUTENBERG-RICHTER ===
+    # Gutenberg-Richter
     b_value = 1.0
 
-    # === SIMULATION ===
+    # Simulation
     duration_years = 1000.0  # Full simulation duration
     time_step_years = 1.0  # Time resolution (years)
 
     # Random seed for reproducibility
     random_seed = 42
 
-    # === OUTPUT ===
+    # Output
     output_dir = "results"
     output_hdf5 = "simulation_results.h5"
     hdf5_compression = (
@@ -137,7 +137,7 @@ class Config:
         # Convert slip rates to m/year
         self.background_slip_rate_m_yr = self.background_slip_rate_mm_yr / 1000.0
 
-        # Total moment accumulation rate (N·m/year)
+        # Total moment accumulation rate (N-m/year)
         total_slip_rate = self.background_slip_rate_m_yr * self.n_elements
         self.total_moment_rate = (
             self.shear_modulus_Pa * self.element_area_m2 * total_slip_rate
@@ -146,7 +146,7 @@ class Config:
         print(
             f"Grid: {self.n_along_strike} x {self.n_down_dip} = {self.n_elements} elements"
         )
-        print(f"Total moment rate: {self.total_moment_rate:.2e} N·m/year")
+        print(f"Total moment rate: {self.total_moment_rate:.2e} N-m/year")
 
     def to_dict(self):
         """
@@ -220,7 +220,7 @@ magnitude = (2 / 3) * np.log10(M0_Nm) - 6.07
 
 print(f"Test earthquake:")
 print(f"  Magnitude: M {magnitude:.2f}")
-print(f"  Rupture area: {area_co_m2 / 1e6:.1f} km²")
+print(f"  Rupture area: {area_co_m2 / 1e6:.1f} km^2")
 print(f"  Number of ruptured elements: {len(ruptured_elements)}")
 print(f"  Rupture radius: {eq_radius_km} km")
 
@@ -247,7 +247,7 @@ print(
     f"  m_current inside rupture (r < {eq_radius_km / 2:.0f} km): {m_current[dist_from_eq < eq_radius_km / 2].mean():.3f} m"
 )
 print(
-    f"  m_current at rupture edge (r ≈ {eq_radius_km} km): {m_current[np.abs(dist_from_eq - eq_radius_km) < 2].mean():.3f} m"
+    f"  m_current at rupture edge (r ~= {eq_radius_km} km): {m_current[np.abs(dist_from_eq - eq_radius_km) < 2].mean():.3f} m"
 )
 print(
     f"  m_current in halo (r > {eq_radius_km + 5:.0f} km): {m_current[dist_from_eq > eq_radius_km + 5].mean():.3f} m"
@@ -266,7 +266,7 @@ print(f"\nAfterslip statistics:")
 print(f"  Max Phi: {Phi.max():.3f}")
 print(f"  Max v_initial: {v_initial.max():.4f} m/yr")
 print(f"  Max m_residual: {m_residual_initial.max():.2f} m")
-print(f"  Moment budget: {sequence['moment_budget']:.2e} m³")
+print(f"  Moment budget: {sequence['moment_budget']:.2e} m^3")
 
 # Find where peak v_initial occurs
 peak_idx = np.argmax(v_initial)
@@ -374,7 +374,7 @@ for loc in velocity_timeseries:
     velocity_timeseries[loc] = np.array(velocity_timeseries[loc])
 
 print(f"\nTime evolution complete.")
-print(f"  Final moment released: {sequence['moment_released']:.2e} m³")
+print(f"  Final moment released: {sequence['moment_released']:.2e} m^3")
 print(f"  Moment budget used: {history['moment_fraction'][-1] * 100:.1f}%")
 
 
@@ -496,9 +496,7 @@ plt.savefig("results/test_afterslip_velocity_evolution.pdf", bbox_inches="tight"
 print("  Saved: results/test_afterslip_velocity_evolution.png")
 plt.close()
 
-# =============================================================================
-# FIGURE 3: CUMULATIVE SLIP EVOLUTION
-# =============================================================================
+# Figure 3: cumulative slip evolution
 
 print("Creating Figure 3: Cumulative slip evolution...")
 fig, axes = plt.subplots(6, 1, figsize=(10, 10))
@@ -564,9 +562,7 @@ plt.savefig("results/test_afterslip_cumulative_evolution.pdf", bbox_inches="tigh
 print("  Saved: results/test_afterslip_cumulative_evolution.png")
 plt.close()
 
-# =============================================================================
-# FIGURE 4: COMBINED VELOCITY AND CUMULATIVE SLIP EVOLUTION (6x2 grid)
-# =============================================================================
+# Figure 4: combined velocity and cumulative slip evolution (6x2 grid)
 
 print("Creating Figure 4: Combined velocity and cumulative slip evolution...")
 fig, axes = plt.subplots(6, 2, figsize=(12, 8))
@@ -740,9 +736,7 @@ plt.savefig("results/test_afterslip_radial_profiles.png", dpi=500, bbox_inches="
 plt.savefig("results/test_afterslip_radial_profiles.pdf")
 plt.close()
 
-# # =============================================================================
-# # FIGURE 5: VELOCITY DECAY CURVES AT SAMPLE LOCATIONS
-# # =============================================================================
+# # Figure 5: velocity decay curves at sample locations
 
 # print("Creating Figure 5: Velocity decay curves...")
 # fig, ax = plt.subplots(figsize=(12, 7))

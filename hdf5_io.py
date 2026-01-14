@@ -266,7 +266,7 @@ def append_snapshot(h5file, time, m_current, m_release_cumulative, event_debt):
     time : float
         Current simulation time (years)
     m_current : ndarray
-        Current moment distribution (m³)
+        Current moment distribution (m^3)
     m_release_cumulative : ndarray
         Cumulative slip release (m)
     event_debt : float
@@ -351,13 +351,13 @@ def finalize_simulation(h5file, cumulative_loading, cumulative_release, coupling
     h5file : h5py.File
         Open HDF5 file handle
     cumulative_loading : float
-        Total moment loaded (m³)
+        Total moment loaded (m^3)
     cumulative_release : float
-        Total moment released (m³)
+        Total moment released (m^3)
     coupling_history : list
         Coupling values sampled during simulation
     final_moment : ndarray
-        Final moment distribution (m³)
+        Final moment distribution (m^3)
     slip_rate : ndarray
         Slip rate distribution (m/year)
     min_moment_elem, max_moment_elem : float

@@ -1,7 +1,7 @@
 """
-Tracking-Normalized η Analysis for KES Ensembles
+Tracking-Normalized eta Analysis for KES Ensembles
 
-Decomposes location sensitivity (η) into two components:
+Decomposes location sensitivity (eta) into two components:
 1. Tracking: Events following the loading pulse (predictable)
 2. Residual: "Address" uncertainty within the loading-defined region (irreducible)
 
@@ -143,7 +143,7 @@ def count_residual_transitions(residual_x, residual_z, x_pulse_sorted, delta_thr
 
 
 def compute_eta_residual(rho_T_residual, H):
-    """η in the residual frame."""
+    """Eta in the residual frame."""
     if H < 1e-10:
         return np.inf
     return rho_T_residual / H

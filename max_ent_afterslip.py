@@ -5,9 +5,7 @@ from matplotlib.patches import Circle
 from scipy.spatial.distance import cdist
 from IPython.display import HTML
 
-# =============================================================================
-# PARAMETERS (all adjustable at top of script)
-# =============================================================================
+# Parameters (all adjustable at top of script)
 
 # Fault geometry
 fault_length_km = 200.0  # Along-strike length (km)
@@ -28,7 +26,7 @@ t_since_last_eq_yr = 100.0  # Time since last earthquake (yr)
 v_ref_m_yr = 0.1  # Reference initial velocity (m/yr)
 M_ref = 7.0  # Reference magnitude for v_ref
 beta = 0.33  # Magnitude scaling exponent (1/3 from theory)
-correlation_length_km = 30.0  # Spatial correlation length ξ
+correlation_length_km = 30.0  # Spatial correlation length xi
 kernel_type = "exponential"  # 'exponential' or 'power_law'
 power_law_exponent = 2.5  # If using power law kernel
 
@@ -41,9 +39,7 @@ n_frames_animation = 50  # Number of frames for animation
 m_critical = 0.01  # Minimum residual moment for afterslip (m)
 v_min = 1e-6  # Minimum velocity for numerical stability (m/yr)
 
-# =============================================================================
-# SETUP FAULT MESH
-# =============================================================================
+# Setup fault mesh
 
 nx = int(fault_length_km / element_size_km)
 ny = int(fault_depth_km / element_size_km)
@@ -52,13 +48,11 @@ y_coords = np.linspace(element_size_km / 2, fault_depth_km - element_size_km / 2
 X, Y = np.meshgrid(x_coords, y_coords)
 
 # Patch areas (all equal in this uniform mesh)
-A_i = element_size_km**2  # km²
+A_i = element_size_km**2  # km^2
 
 print(f"Fault mesh: {nx} x {ny} = {nx * ny} elements")
 
-# =============================================================================
-# CALCULATE ACCUMULATED GEOMETRIC MOMENT
-# =============================================================================
+# Calculate accumulated geometric moment
 
 # Simplified: uniform loading everywhere
 m_acc = v_load_mm_yr * 1e-3 * t_since_last_eq_yr  # Convert mm to m
@@ -66,9 +60,7 @@ m_accumulated = np.ones_like(X) * m_acc
 
 print(f"Accumulated slip deficit: {m_acc:.2f} m")
 
-# =============================================================================
-# DEFINE COSEISMIC SLIP
-# =============================================================================
+# Define coseismic slip
 
 # Calculate distance from earthquake center
 dist_from_eq = np.sqrt((X - eq_center_x_km) ** 2 + (Y - eq_center_y_km) ** 2)
@@ -82,18 +74,14 @@ area_co_km2 = np.sum(m_coseismic > 0) * A_i
 M0_Nm = np.sum(m_coseismic) * A_i * 1e6 * 3e10  # Rough conversion
 Mw = (2 / 3) * np.log10(M0_Nm) - 6.07
 
-print(f"Coseismic: Mw = {Mw:.2f}, Rupture area = {area_co_km2:.0f} km²")
+print(f"Coseismic: Mw = {Mw:.2f}, Rupture area = {area_co_km2:.0f} km^2")
 
-# =============================================================================
-# CALCULATE RESIDUAL GEOMETRIC MOMENT
-# =============================================================================
+# Calculate residual geometric moment
 
 m_residual_initial = m_accumulated - m_coseismic
 m_residual_initial[m_residual_initial < m_critical] = 0  # Apply threshold
 
-# =============================================================================
-# SPATIAL ACTIVATION FUNCTION Φ_i
-# =============================================================================
+# Spatial activation function Phi_i
 
 
 def calculate_spatial_kernel(X, Y, m_co, kernel_type="exponential"):
@@ -141,9 +129,7 @@ def calculate_spatial_kernel(X, Y, m_co, kernel_type="exponential"):
 # Calculate spatial activation
 Phi = calculate_spatial_kernel(X, Y, m_coseismic, kernel_type)
 
-# =============================================================================
-# INITIAL AFTERSLIP VELOCITY
-# =============================================================================
+# Initial afterslip velocity
 
 # Magnitude scaling
 v_mag_scale = v_ref_m_yr * (Mw / M_ref) ** beta
@@ -156,9 +142,7 @@ v_initial[v_initial < v_min] = 0
 
 print(f"Max initial afterslip velocity: {v_initial.max():.3f} m/yr")
 
-# =============================================================================
-# TIME EVOLUTION
-# =============================================================================
+# Time evolution
 
 time_steps = np.arange(0, t_max_years + dt_years, dt_years)
 n_steps = len(time_steps)
@@ -197,9 +181,7 @@ for it, t in enumerate(time_steps):
         m_residual[depleted] = 0
         v_current[depleted] = 0
 
-# =============================================================================
-# VISUALIZATION
-# =============================================================================
+# Visualization
 
 # Create figure with subplots
 fig = plt.figure(figsize=(16, 10))
@@ -238,7 +220,7 @@ plt.colorbar(im3, ax=ax3, label="Residual moment (m)")
 
 ax4 = plt.subplot(2, 3, 4)
 im4 = ax4.pcolormesh(X, Y, Phi, cmap="viridis", shading="auto")
-ax4.set_title("Spatial Activation Φ")
+ax4.set_title("Spatial Activation Phi")
 ax4.set_xlabel("Along-strike (km)")
 ax4.set_ylabel("Down-dip (km)")
 plt.colorbar(im4, ax=ax4, label="Activation")
@@ -265,9 +247,7 @@ ax6.legend()
 plt.tight_layout()
 plt.show()
 
-# =============================================================================
-# ANIMATION
-# =============================================================================
+# Animation
 
 fig_anim, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -323,19 +303,17 @@ plt.tight_layout()
 
 plt.show()
 
-# =============================================================================
-# SUMMARY STATISTICS
-# =============================================================================
+# Summary statistics
 
-total_afterslip = cumulative_slip.sum() * A_i  # Total moment in m·km²
+total_afterslip = cumulative_slip.sum() * A_i  # Total moment in m-km^2
 total_coseismic = m_coseismic.sum() * A_i
 ratio = total_afterslip / total_coseismic if total_coseismic > 0 else 0
 
 print("\n" + "=" * 50)
 print("SUMMARY:")
-print(f"Total coseismic moment: {total_coseismic:.1f} m·km²")
-print(f"Total afterslip moment: {total_afterslip:.1f} m·km²")
+print(f"Total coseismic moment: {total_coseismic:.1f} m-km^2")
+print(f"Total afterslip moment: {total_afterslip:.1f} m-km^2")
 print(f"Afterslip/Coseismic ratio: {ratio:.2%}")
 print(f"Max cumulative afterslip: {cumulative_slip.max():.3f} m")
-print(f"Afterslip area: {np.sum(cumulative_slip > 0.01) * A_i:.0f} km²")
+print(f"Afterslip area: {np.sum(cumulative_slip > 0.01) * A_i:.0f} km^2")
 print("=" * 50)

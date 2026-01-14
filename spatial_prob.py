@@ -9,7 +9,7 @@ def gamma_magnitude_dependent(magnitude, gamma_min, gamma_max, alpha, M_min):
     """
     Selectivity increases with magnitude
 
-    gamma(M) = gamma_max - (gamma_max - gamma_min) × exp(-alpha × (M - M_min))
+    gamma(M) = gamma_max - (gamma_max - gamma_min) * exp(-alpha * (M - M_min))
     """
     delta_M = magnitude - M_min
     gamma = gamma_max - (gamma_max - gamma_min) * np.exp(-alpha * delta_M)
@@ -21,7 +21,7 @@ def spatial_probability(m_current, magnitude, config, aftershock_weights=None):
     Compute p(i|M) - spatial nucleation probability given magnitude
 
     Combines moment-based nucleation with aftershock spatial localization:
-    p(i|M) ∝ m_i^γ(M) × w_aftershock(i)
+    p(i|M) proportional to m_i^gamma(M) * w_aftershock(i)
 
     where w_aftershock comes from active mainshock sequences
 
@@ -34,7 +34,7 @@ def spatial_probability(m_current, magnitude, config, aftershock_weights=None):
     config : Config
         Configuration
     aftershock_weights : (n_elements,) array, optional
-        Spatial weighting from aftershock sequences (≥ 1.0)
+        Spatial weighting from aftershock sequences (>= 1.0)
         If None, uses uniform weights (no spatial bias)
 
     Returns:
