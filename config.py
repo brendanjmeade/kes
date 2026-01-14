@@ -13,7 +13,7 @@ class Config:
     fault_length_km = 200.0  # Along-strike length (km)
     fault_depth_km = 25.0  # Down-dip depth (km)
     element_size_km = 1.0  # Grid cell size (km)
-    # element_size_km = 0.1  # Grid cell size (km)
+    element_size_km = 0.5  # Grid cell size (km)
 
     # Background moment (slip deficit) rate
     background_slip_rate_mm_yr = 10.0  # mm/year
@@ -122,7 +122,7 @@ class Config:
     time_step_years = 1.0  # Time resolution (years)
 
     # Random seed for reproducibility
-    random_seed = 42
+    random_seed = 43
 
     # Output
     output_dir = "results"

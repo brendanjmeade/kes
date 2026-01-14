@@ -343,7 +343,7 @@ def plot_evolution_overview(results, config):
     plt.xlim(0, config.duration_years)
     # plt.xticks([])
     plt.gca().set_xticklabels([])
-    plt.ylim([0, 5])
+    plt.ylim([0, 10])
     # plt.yticks([0, 5])
     plt.ylim(bottom=0)
     plt.gca().tick_params(axis="both", labelsize=FONTSIZE)
@@ -678,6 +678,7 @@ def plot_moment_snapshots(
         ax.set_ylabel("$d$ (km)", fontsize=FONTSIZE)
         ax.set_title(f"$t$ = {actual_time:.1f} years", fontsize=FONTSIZE)
         ax.invert_yaxis()
+        ax.set_aspect("equal", adjustable="box")
 
         cbar = plt.colorbar(cbar_plot, ax=ax)
 
@@ -1072,9 +1073,14 @@ def plot_all(results, config):
     plot_loading_and_earthquakes(results, config)
 
     # Snapshots
-    plot_moment_snapshots(results, config, time_idx=151)
-    plot_moment_snapshots(results, config, time_idx=152)
-    plot_moment_snapshots(results, config, time_idx=153)
+    plot_moment_snapshots(results, config, time_idx=65)
+    plot_moment_snapshots(results, config, time_idx=66)
+    plot_moment_snapshots(results, config, time_idx=67)
+    plot_moment_snapshots(results, config, time_idx=68)
+    plot_moment_snapshots(results, config, time_idx=69)
+    plot_moment_snapshots(results, config, time_idx=70)
+    plot_moment_snapshots(results, config, time_idx=999)
+    plot_moment_snapshots(results, config, time_idx=87)
 
     # Animation (can take a long time, may fail if ffmpeg not working)
     # try:
