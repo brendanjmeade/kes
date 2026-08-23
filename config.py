@@ -36,17 +36,95 @@ class Config:
     gamma_max = 1.5  # Large events need a pool of moment
     alpha_spatial = 0.35  # Decay rate
     M_min = 5.0  # Minimum magnitude
-    M_max = 8.0  # Maximum magnitude
+    M_max = 7.5  # Maximum magnitude (8.0 needs 2x the fault area; M>=7.7 draws empty the whole fault)
 
     # Adaptive rate correction
     adaptive_correction_enabled = (
         True  # Enable adaptive correction (True = drives coupling toward 1.0)
     )
     adaptive_correction_gain = (
-        5.0  # Proportional control gain for coupling correction (continuous updates)
+        2e-4  # Controller gain (/yr). Legacy proportional scheme used 5.0. For the
+        # reservoir-keyed integral with nu = 0.5 the critically damped value is
+        # nu^2 / (4 T_ref) ~ 2e-4 at T_ref = 250 yr; coupling-keyed trim used 1e-3
     )
-    correction_factor_min = 0.1  # Minimum allowed correction factor
-    correction_factor_max = 10.0  # Maximum allowed correction factor
+    correction_factor_min = 0.5  # Minimum allowed correction factor (legacy 0.1)
+    correction_factor_max = 2.0  # Maximum allowed correction factor (legacy 10.0)
+    # Controller mode
+    #   "legacy":   corr += gain * (1 - R_cum/L_cum) * dt, gated by
+    #               adaptive_correction_enabled (bang-bang at gain ~ 5).
+    #   "integral": slow integral trim with anti-windup on a windowed
+    #               (EWMA) coupling; recommended gain ~ 1e-3 /yr, window
+    #               ~ 300 yr, bounds [0.5, 2.0].
+    #   "off":      correction factor fixed at 1.0.
+    adaptive_correction_mode = "integral"
+    adaptive_correction_window_years = 300.0  # EWMA window for "integral" (0 = cumulative)
+    # adaptive_correction_target (integral mode):
+    #   "coupling":  corr += gain * (1 - kappa_w) * dt on the windowed coupling
+    #                (a washout filter: restores toward its own moving average)
+    #   "reservoir": corr += gain * (D / D_ref - 1) * dt  (set point D_ref;
+    #                combine with deficit_exponent > 0 as the proportional term)
+    adaptive_correction_target = "reservoir"
+
+    # Rate law
+    #   lambda_loading = C * corr * D_ref * (D / D_ref)^deficit_exponent
+    # rate_mode:
+    #   "legacy":         C from compute_rate_parameters (assumes the tracked
+    #                     deficit equilibrates at L*T_char/2), D_ref = that
+    #                     equilibrium value.
+    #   "moment_balance": lambda_0 = (1 - f_as) * L_tot / E[m_clipped](D_ref)
+    #                     calibrated from the actual reservoir after
+    #                     initialize_moment; C = lambda_0 / D_ref.
+    rate_mode = "moment_balance"
+    # deficit_source:
+    #   "tracked":   D = max(0, L_cum - R_cum)  (legacy; excludes the spin-up
+    #                reservoir, can hit zero after large events)
+    #   "reservoir": D = element_area * sum(m_current) (the actual deficit)
+    deficit_source = "reservoir"
+    deficit_exponent = 0.5  # nu: 1 = legacy (rate ~ deficit), 0 = stationary rate (Dieterich steady state).
+    # For rate_law memory/saturating, nu > 0 multiplies lambda_load by (D/D_ref)^nu
+    # (the proportional term of the reservoir controller).
+    # Fold the Omori branching ratio into the calibration: the loading term is
+    # (1 - n_b) of the total rate that balances moment (aftershocks release the
+    # same E[m]). Legacy False left the reservoir to sink until clipping paid
+    # for the extra ~30% of events.
+    rate_omori_branching_correction = True
+    # rate_law:
+    #   "power":      lambda_load = lambda_0 * corr * (D/D_ref)^nu (global reservoir)
+    #   "saturating": lambda_load = lambda_0 * corr * mean_i g(m_i / (v_i T_s)),
+    #                 a per-element stress-shadow: g(0) = 0, g -> 1 once an element
+    #                 has reloaded T_s years of its own slip rate. Suppresses the
+    #                 rate after ruptures (in proportion to the area emptied) and is
+    #                 flat once recharged, so there is no pre-mainshock crescendo.
+    #   "memory":     lambda_load = lambda_0 * corr * mean_i h_i with a Dieterich
+    #                 rate-state shadow per element: h_i = 1/xi_i, xi_i >= 1;
+    #                 a rupture putting slip s_i on element i sets
+    #                 ln xi_i += f * s_i / (v_i * t_a) and xi relaxes as
+    #                 xi -> 1 + (xi - 1) exp(-dt/t_a). Exact identity:
+    #                 int (1 - h_i) dt = f * s_i / v_i, i.e. the shadow lasts a
+    #                 fraction f of the time needed to reload the slip released,
+    #                 whatever the remaining deficit. Bounded above (h <= 1), so
+    #                 no pre-mainshock crescendo.
+    rate_law = "memory"
+    rate_saturation_years = 30.0  # T_s: recharge time (years of local loading)
+    rate_saturation_shape = "exp"  # "exp": 1 - exp(-x); "hill": x^n / (1 + x^n)
+    rate_saturation_hill_n = 2.0
+    rate_saturation_reference = 0.0  # S_ref for lambda_0 = lambda_bar / S_ref (0 = analytic)
+    memory_reload_fraction = 0.5  # f: shadow duration as a fraction of the reload time s_i / v_i
+    memory_relaxation_years = 10.0  # t_a: Dieterich aftereffect time (width of the recovery)
+    memory_afterslip_steps = False  # treat afterslip increments as stress steps too
+    memory_init = "steady"  # "steady": synthetic steady-state shadow population; "fresh": xi = 1
+    memory_reference_H = 0.0  # H_bar for lambda_0 = lambda_bar / H_bar (0 = analytic 1 - f (1 - f_as))
+    # Also multiply the MaxEnt nucleation weights by g_i / h_i (so events do
+    # not nucleate on patches still in the shadow). Off = pure m_i^gamma(M).
+    rate_spatial_weighting = True
+    deficit_reference_years = 250.0  # D_ref = this * L_tot if > 0, else D_res(0)
+    rate_expected_moment = "clipped"  # "gr": E[m] of nominal G-R; "clipped": E[min(m, capacity)]
+    afterslip_release_fraction = 0.2  # f_as: fraction of release that is aseismic (moment_balance mode; realized ~0.20 with the capped budget)
+    # Clip afterslip to the available local deficit so m_current never goes
+    # negative (legacy False: overlapping sequences can overshoot).
+    afterslip_clip_to_deficit = True
+    # Assert D_res == D_0 + L_cum - R_cum every step (debug only)
+    check_reservoir_identity = False
 
     # Omori aftershock parameters
     # Standard Omori-Utsu law: rho_aftershock(t) = K / (t + c)^p
@@ -54,12 +132,36 @@ class Config:
     omori_enabled = True  # Enable/disable aftershock sequences
     omori_p = 1.0  # Decay exponent (typically ~1.0)
     omori_c_years = 1.0 / 365.25  # Time offset in years (~0.00274 years = 1 day)
-    omori_K_ref = 0.1  # Productivity (events/year) for M=6 mainshock
+    omori_K_ref = 0.043  # Productivity (events/year) for M=6 mainshock (0.1 with legacy point sampling)
     omori_M_ref = 6.0  # Reference magnitude for productivity
     omori_alpha = 0.8  # Magnitude scaling (Reasenberg & Jones 1989)
     omori_duration_years = (
         30.0  # Only track aftershocks for this many years after mainshock
     )
+    # Omori time integration over a timestep.
+    #   False: legacy point sampling K / (k*dt + c)^p at integer grid lags k
+    #          (with c = 1 day and dt = 1 yr this drops the day-to-year part
+    #          of every sequence and spreads the remainder over 30 years).
+    #   True:  expected count over the step, K * [F(k*dt) - F((k-1)*dt)] with
+    #          F(t) = int_0^t (tau + c)^-p dtau, divided by dt. The previous
+    #          step's event delivers its whole first year at lag k = 1 (causal).
+    #          To preserve the branching ratio of the legacy scheme (~0.235 for
+    #          30-yr sequences) use omori_K_ref ~ 0.043 with this mode.
+    omori_integrate_over_step = True
+    # Compute the spatial activation kernel Phi (for aftershock localization)
+    # for all events with M >= this value, independent of afterslip. inf =
+    # legacy behaviour (Phi only exists for afterslip-triggering events).
+    omori_spatial_M_min = 5.0
+
+    # Event-count sampling per timestep
+    #   "deterministic": fractional accumulator, emit floor(debt) (legacy).
+    #                    N_obs == int(lambda dt) to within one event; no
+    #                    counting noise, no gaps longer than ceil(1/lambda).
+    #   "poisson":       n ~ Poisson(lambda * dt) from the seeded RNG.
+    event_sampling = "poisson"
+    # Store sorted U[0, dt) offsets as event["time_offset"] for catalog
+    # statistics. event["time"] stays on the grid and drives all dynamics.
+    event_substep_times = True
 
     # Background rate of seismicity
     lambda_background = 0.0
@@ -106,9 +208,16 @@ class Config:
     afterslip_spatial_threshold = (
         0.3  # Only allow afterslip where Phi > threshold [NEW]
     )
+    # If > 0, cap a sequence's moment budget at this fraction of the
+    # mainshock's coseismic geometric moment (legacy 0 = budget is all the
+    # residual deficit in the halo, which scales with the reservoir).
+    afterslip_budget_fraction = 1.0
 
     # Moment initialization fraction
     spinup_fraction = 0.25  # Initialize with this fraction of mid-cycle moment (0.25 = recurrence_time/4)
+    # If > 0, initialize m = slip_rate * spinup_years directly (D_0 = spinup_years * L_tot),
+    # bypassing the M_max-keyed recurrence-time formula above.
+    spinup_years = 250.0
 
     # Coseismic slip parameters
     slip_decay_rate = 2.0  # Exponential decay rate of slip from hypocenter
@@ -133,6 +242,9 @@ class Config:
     snapshot_interval_years = (
         1.0  # Save moment snapshots every N years (1.0 = every timestep)
     )
+    # Per-timestep scalar history (rate components, correction factor,
+    # coupling, deficit, event counts) in the HDF5 'step/' group
+    save_step_history = True
 
     def compute_derived_parameters(self):
         """Compute parameters that depend on others"""
@@ -168,14 +280,23 @@ class Config:
         Returns:
         --------
         config_dict : dict
-            Dictionary of all config parameters (excludes methods and private attrs)
+            Dictionary of all config parameters (excludes methods and private attrs).
+            Includes class-level defaults (walking the MRO, derived classes win)
+            overlaid with instance attributes (overrides and derived values).
         """
         config_dict = {}
-        for key, value in self.__dict__.items():
-            # Skip private attributes and methods
+        for klass in reversed(type(self).__mro__):
+            if klass is object:
+                continue
+            for key, value in vars(klass).items():
+                if key.startswith("_") or callable(value):
+                    continue
+                if isinstance(value, (classmethod, staticmethod, property)):
+                    continue
+                config_dict[key] = value
+        for key, value in vars(self).items():
             if key.startswith("_") or callable(value):
                 continue
-            # Store all simple types
             config_dict[key] = value
         return config_dict
 

@@ -10,6 +10,26 @@ import numpy as np
 from pathlib import Path
 
 
+# Per-timestep scalar history stored in the 'step/' group (name, dtype)
+STEP_HISTORY_FIELDS = [
+    ('times', 'f8'),
+    ('lambda_total', 'f8'),
+    ('lambda_loading', 'f8'),
+    ('lambda_aftershock', 'f8'),
+    ('lambda_background', 'f8'),
+    ('lambda_perturbation', 'f8'),
+    ('expected_count', 'f8'),
+    ('n_events', 'i4'),
+    ('event_debt_pre', 'f8'),
+    ('correction_factor', 'f8'),
+    ('coupling', 'f8'),
+    ('moment_deficit', 'f8'),
+    ('reservoir', 'f8'),
+    ('saturation', 'f8'),
+    ('n_active_sequences', 'i4'),
+]
+
+
 def create_hdf5_file(filepath, config, mesh):
     """
     Initialize HDF5 file structure for simulation results
@@ -44,8 +64,10 @@ def create_hdf5_file(filepath, config, mesh):
         if value is None:
             continue
         elif isinstance(value, (list, tuple)):
+            if len(value) == 0:
+                continue
             # Check if it's a list of dicts (like moment_pulses) - serialize as JSON
-            if len(value) > 0 and isinstance(value[0], dict):
+            if isinstance(value[0], dict):
                 import json
                 config_group.attrs[key] = json.dumps(value)
             else:
@@ -54,8 +76,11 @@ def create_hdf5_file(filepath, config, mesh):
             # Serialize dicts as JSON
             import json
             config_group.attrs[key] = json.dumps(value)
-        else:
+        elif isinstance(value, (bool, int, float, str, np.generic)):
             config_group.attrs[key] = value
+        else:
+            # Unsupported type (e.g. arrays of state) - store a repr
+            config_group.attrs[key] = repr(value)
 
     # Store mesh data (static, written once)
     mesh_group = h5file.create_group('mesh')
@@ -134,6 +159,20 @@ def create_hdf5_file(filepath, config, mesh):
         **compression_kwargs
     )
 
+    # Per-timestep scalar history (written every step, independent of the
+    # snapshot interval) in the 'step/' group
+    if getattr(config, 'save_step_history', True):
+        step_group = h5file.create_group('step')
+        for name, dtype in STEP_HISTORY_FIELDS:
+            step_group.create_dataset(
+                name,
+                shape=(0,),
+                maxshape=(None,),
+                dtype=dtype,
+                chunks=(chunk_size,),
+                **compression_kwargs
+            )
+
     # Create variable-length dataset for events
     # Events will be stored as a compound datatype for efficiency
     event_dtype = np.dtype([
@@ -146,6 +185,8 @@ def create_hdf5_file(filepath, config, mesh):
         ('hypocenter_z_km', 'f8'),
         ('gamma_used', 'f8'),
         ('lambda_t', 'f8'),
+        ('time_offset', 'f8'),
+        ('magnitude_nominal', 'f8'),
     ])
 
     h5file.create_dataset(
@@ -197,6 +238,35 @@ class BufferedHDF5Writer:
         self.debt_buffer = []
         self.lambda_buffer = []
         self.afterslip_buffer = []
+        self.step_buffers = {name: [] for name, _ in STEP_HISTORY_FIELDS}
+        self.has_step_group = 'step' in h5file
+
+    def append_step(self, **scalars):
+        """
+        Append one timestep of scalar history to the 'step/' buffers
+
+        Keys must match STEP_HISTORY_FIELDS; missing keys are stored as NaN
+        (or 0 for integer fields). Flushed together with the snapshots.
+        """
+        if not self.has_step_group:
+            return
+        for name, dtype in STEP_HISTORY_FIELDS:
+            value = scalars.get(name, np.nan if dtype.startswith('f') else 0)
+            self.step_buffers[name].append(value)
+        if len(self.step_buffers['times']) >= self.buffer_size:
+            self.flush_steps()
+
+    def flush_steps(self):
+        """Write buffered step history to HDF5"""
+        if not self.has_step_group or len(self.step_buffers['times']) == 0:
+            return
+        step_group = self.h5file['step']
+        n = step_group['times'].shape[0]
+        n_new = len(self.step_buffers['times'])
+        for name, _ in STEP_HISTORY_FIELDS:
+            step_group[name].resize((n + n_new,))
+            step_group[name][n:n + n_new] = np.array(self.step_buffers[name])
+            self.step_buffers[name] = []
 
     def append(self, time, m_current, m_release_cumulative, event_debt, lambda_t, afterslip_cumulative):
         """
@@ -217,8 +287,9 @@ class BufferedHDF5Writer:
 
     def flush(self):
         """
-        Write all buffered snapshots to HDF5
+        Write all buffered snapshots (and step history) to HDF5
         """
+        self.flush_steps()
         if len(self.times_buffer) == 0:
             return
 
@@ -320,6 +391,8 @@ def append_event(h5file, event):
         event['hypocenter_z_km'],
         event['gamma_used'],
         event['lambda_t'],
+        event.get('time_offset', 0.0),
+        event.get('magnitude_nominal', np.nan),
     )
 
     h5file['events'][n] = record
@@ -426,6 +499,8 @@ def read_config(h5file):
             value = value.item()  # Scalar
         elif isinstance(value, np.ndarray):
             value = value.tolist()
+        elif isinstance(value, np.generic):
+            value = value.item()  # numpy scalar (bool_, float64, ...) -> python
         # Deserialize JSON strings (used for moment_pulses and other nested structures)
         elif isinstance(value, str) and (value.startswith('[') or value.startswith('{')):
             try:
@@ -489,7 +564,8 @@ class HDF5Results:
             'config', 'mesh', 'event_history', 'moment_snapshots',
             'release_snapshots', 'times', 'event_debt_history', 'lambda_history',
             'afterslip_snapshots', 'snapshot_times', 'cumulative_loading', 'cumulative_release',
-            'final_moment', 'slip_rate', 'coupling_history', 'moment_extrema'
+            'final_moment', 'slip_rate', 'coupling_history', 'moment_extrema',
+            'step_history'
         ]
         return key in valid_keys
 
@@ -564,6 +640,13 @@ class HDF5Results:
             else:
                 return []
 
+        elif key == 'step_history':
+            # Per-timestep scalar history (lazy datasets); {} for old files
+            if 'step' in self.h5file:
+                return {name: self.h5file['step'][name] for name in self.h5file['step']}
+            else:
+                return {}
+
         else:
             raise KeyError(f"Unknown key: {key}")
 
@@ -600,6 +683,10 @@ class HDF5Results:
                 'hypocenter_z_km': float(event_records[i]['hypocenter_z_km']),
                 'gamma_used': float(event_records[i]['gamma_used']),
                 'lambda_t': float(event_records[i]['lambda_t']),
+                'time_offset': (float(event_records[i]['time_offset'])
+                                if 'time_offset' in event_records.dtype.names else 0.0),
+                'magnitude_nominal': (float(event_records[i]['magnitude_nominal'])
+                                      if 'magnitude_nominal' in event_records.dtype.names else np.nan),
                 'ruptured_elements': event_group['ruptured_elements'][:],
                 'slip': event_group['slip'][:],
                 'components': components,

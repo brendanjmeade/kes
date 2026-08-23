@@ -96,7 +96,11 @@ def initialize_moment(config, mesh):
     # Spin-up: Start partway through earthquake cycle
     # Use spinup_fraction from config (e.g., 0.25 means 25% of mid-cycle)
     # Mid-cycle is at recurrence_time/2, so fraction of that is recurrence_time * (fraction/2)
-    initial_time_equivalent = recurrence_time * config.spinup_fraction
+    spinup_years = getattr(config, "spinup_years", 0.0)
+    if spinup_years > 0:
+        initial_time_equivalent = spinup_years
+    else:
+        initial_time_equivalent = recurrence_time * config.spinup_fraction
 
     # Accumulate slip deficit for this equivalent time (units: meters)
     m_current = slip_rate * initial_time_equivalent

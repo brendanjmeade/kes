@@ -23,6 +23,11 @@ Examples:
     # Run shorter simulations (100 years each)
     python run_ensemble.py --vary_location --duration 100
 
+    # Override any Config attribute per variant (type-coerced from the class
+    # default; recorded in the HDF5 config group as config_overrides)
+    python run_ensemble.py --vary_seed --output_dir results/ensemble_poisson \
+        --set event_sampling=poisson --set omori_integrate_over_step=true
+
 Defaults:
     n_runs = 5
     delta = 2.0 (mm/yr for amplitude, km for location)
@@ -41,6 +46,42 @@ from config import Config
 from simulator import run_simulation
 
 
+def coerce_override(key, raw):
+    """
+    Coerce a command-line override string to the type of Config.<key>
+
+    bool accepts true/false/1/0/yes/no; float accepts inf/nan; str is kept.
+    """
+    if not hasattr(Config, key):
+        raise SystemExit(f"--set: unknown Config attribute {key!r}")
+    default = getattr(Config, key)
+    if isinstance(default, bool):
+        lowered = raw.strip().lower()
+        if lowered in ("true", "1", "yes", "on"):
+            return True
+        if lowered in ("false", "0", "no", "off"):
+            return False
+        raise SystemExit(f"--set {key}: expected a boolean, got {raw!r}")
+    if isinstance(default, int):
+        return int(raw)
+    if isinstance(default, float):
+        return float(raw)
+    if isinstance(default, str):
+        return raw
+    raise SystemExit(f"--set {key}: unsupported type {type(default).__name__}")
+
+
+def parse_overrides(items):
+    """Parse repeated --set key=value arguments into a dict"""
+    overrides = {}
+    for item in items or []:
+        if "=" not in item:
+            raise SystemExit(f"--set expects key=value, got {item!r}")
+        key, raw = item.split("=", 1)
+        overrides[key.strip()] = coerce_override(key.strip(), raw)
+    return overrides
+
+
 def run_ensemble(
     n_runs=5,
     delta=2.0,
@@ -50,6 +91,8 @@ def run_ensemble(
     vary_location=False,
     base_seed=42,
     duration=None,
+    overrides=None,
+    tag=None,
 ):
     """
     Run ensemble of simulations with varying parameters
@@ -72,6 +115,10 @@ def run_ensemble(
         Base random seed (default: 42)
     duration : float, optional
         Simulation duration in years (default: use config.py value)
+    overrides : dict, optional
+        Config attribute overrides applied to every run (from --set)
+    tag : str, optional
+        Suffix appended to output filenames
 
     Returns:
     --------
@@ -113,6 +160,10 @@ def run_ensemble(
         print(f"  Pulse location: {base_x} km (fixed)")
     print()
     print(f"Output directory: {output_path}")
+    if overrides:
+        print("Config overrides:")
+        for key, value in overrides.items():
+            print(f"  {key} = {value!r}")
     print()
 
     for i in range(n_runs):
@@ -148,6 +199,8 @@ def run_ensemble(
             parts.append(f"x{pulse_x:05.1f}")
         if vary_seed:
             parts.append(f"seed{seed:03d}")
+        if tag:
+            parts.append(tag)
         output_filename = "_".join(parts) + ".h5"
 
         # Build parameter string for display
@@ -179,6 +232,12 @@ def run_ensemble(
         config.random_seed = seed
         if duration is not None:
             config.duration_years = duration
+
+        # Apply per-variant overrides (recorded in the HDF5 config group)
+        if overrides:
+            for key, value in overrides.items():
+                setattr(config, key, value)
+            config.config_overrides = dict(overrides)
 
         # Compute derived parameters
         config.compute_derived_parameters()
@@ -254,6 +313,19 @@ def main():
         default=None,
         help="Simulation duration in years (default: use config.py value)",
     )
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Override a Config attribute for every run (repeatable)",
+    )
+    parser.add_argument(
+        "--tag",
+        type=str,
+        default=None,
+        help="Suffix appended to output filenames",
+    )
 
     args = parser.parse_args()
 
@@ -266,6 +338,8 @@ def main():
         vary_location=args.vary_location,
         base_seed=args.base_seed,
         duration=args.duration,
+        overrides=parse_overrides(args.set),
+        tag=args.tag,
     )
 
 

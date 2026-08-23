@@ -53,10 +53,11 @@ def generate_slip_distribution(hypocenter_idx, magnitude, m_current, mesh, confi
     slip[ruptured_elements] = slip_pattern[ruptured_elements] * scale_factor
 
     # CRITICAL: Check total available moment in rupture area
-    # Available geometric moment on each ruptured element
-    available_geom_moment_per_element = m_current[
-        ruptured_elements
-    ]  # m (slip deficit per element)
+    # Available geometric moment on each ruptured element (never negative:
+    # afterslip overshoot can leave a slightly negative deficit)
+    available_geom_moment_per_element = np.maximum(
+        m_current[ruptured_elements], 0.0
+    )  # m (slip deficit per element)
     total_available_geom_moment = np.sum(
         available_geom_moment_per_element * config.element_area_m2
     )  # m^3 (total geometric moment available)
@@ -79,7 +80,7 @@ def generate_slip_distribution(hypocenter_idx, magnitude, m_current, mesh, confi
     # Verify slip doesn't exceed available moment on any element (safety check)
     # This should be automatically satisfied by uniform scaling, but check anyway
     slip[ruptured_elements] = np.minimum(
-        slip[ruptured_elements], m_current[ruptured_elements]
+        slip[ruptured_elements], available_geom_moment_per_element
     )
 
     # Recompute actual moment after safety check

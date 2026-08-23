@@ -49,6 +49,198 @@ def compute_expected_moment_per_event(config):
     return expected_geom_moment
 
 
+def _gr_quadrature(config, n=1000):
+    """Magnitude grid and normalized G-R density on [M_min, M_max]."""
+    M_array = np.linspace(config.M_min, config.M_max, n)
+    dM = M_array[1] - M_array[0]
+    P_unnormalized = 10 ** (-config.b_value * M_array)
+    P_normalized = P_unnormalized / (np.sum(P_unnormalized) * dM)
+    return M_array, dM, P_normalized
+
+
+def compute_expected_clipped_moment(config, reservoir_geom_moment):
+    """
+    Expected geometric moment per event when release is clipped to capacity
+
+    The slip generator scales an event down when the requested moment exceeds
+    the deficit available on the ruptured elements (slip_generator.py). In a
+    mean-field sense an event of nominal magnitude M ruptures an area
+    A_r(M) = 10^(M - 3.99) km^2 (capped at the fault area) and can release at
+    most A_r * D / A_fault, where D is the reservoir (total geometric moment
+    on the fault). This returns E[min(m(M), capacity(M, D))] over G-R.
+
+    Parameters:
+    -----------
+    config : Config object (needs n_elements, element_area_m2)
+    reservoir_geom_moment : float
+        Total geometric moment on the fault, D (m^3)
+
+    Returns:
+    --------
+    expected_clipped_moment : float (m^3)
+    """
+    M_array, dM, P_normalized = _gr_quadrature(config)
+    geom_moment_array = magnitude_to_seismic_moment(M_array) / config.shear_modulus_Pa
+    fault_area_m2 = config.n_elements * config.element_area_m2
+    rupture_area_m2 = np.minimum(10 ** (M_array - 3.99) * 1e6, fault_area_m2)
+    capacity = rupture_area_m2 * reservoir_geom_moment / fault_area_m2
+    clipped = np.minimum(geom_moment_array, capacity)
+    return np.sum(clipped * P_normalized * dM)
+
+
+def saturation_weights(m_current, config):
+    """
+    Per-element recharge state g_i in [0, 1] for the saturating rate law
+
+    g(x) with x = m_i / (v_i * T_s): "exp" -> 1 - exp(-x); "hill" -> x^n/(1+x^n).
+    Requires config._m_sat = slip_rate * rate_saturation_years (set by
+    calibrate_rate_to_reservoir).
+    """
+    x = np.maximum(m_current, 0.0) / config._m_sat
+    if getattr(config, "rate_saturation_shape", "exp") == "hill":
+        n = getattr(config, "rate_saturation_hill_n", 2.0)
+        xn = x ** n
+        return xn / (1.0 + xn)
+    return -np.expm1(-x)
+
+
+MEMORY_LOG_XI_MAX = 60.0
+MEMORY_H_FLOOR = 1e-6
+
+
+def memory_relax(xi, dt_years, config):
+    """Relax the rate-state variable toward 1 in place: xi -> 1 + (xi - 1) e^{-dt/t_a}"""
+    decay = np.exp(-dt_years / config.memory_relaxation_years)
+    xi *= decay
+    xi += 1.0 - decay
+
+
+def memory_rupture_update(xi, idx, slip, slip_rate, config):
+    """
+    Apply a slip (stress-drop) step to the rate-state variable in place
+
+    ln xi_i += f * s_i / (v_i * t_a) on the given element indices.
+    """
+    idx = np.asarray(idx, dtype=int)
+    if idx.size == 0:
+        return
+    f = config.memory_reload_fraction
+    t_a = config.memory_relaxation_years
+    logxi = np.log(xi[idx]) + f * slip[idx] / (np.maximum(slip_rate[idx], 1e-12) * t_a)
+    xi[idx] = np.exp(np.minimum(logxi, MEMORY_LOG_XI_MAX))
+
+
+def memory_weights(xi):
+    """Per-element shadow weight h_i = 1/xi_i in (0, 1]"""
+    return np.maximum(1.0 / xi, MEMORY_H_FLOOR)
+
+
+def memory_reference_H(config):
+    """
+    Long-run mean of h under moment balance
+
+    Each element spends a fraction f * S_i/(v_i T) of the time in shadow, and
+    the seismic share of release is (1 - f_as), so H_bar = 1 - f (1 - f_as)
+    (or 1 - f if afterslip increments are treated as stress steps too).
+    """
+    override = getattr(config, "memory_reference_H", 0.0)
+    if override > 0:
+        return override
+    f = config.memory_reload_fraction
+    f_as = getattr(config, "afterslip_release_fraction", 0.0) if config.afterslip_enabled else 0.0
+    if getattr(config, "memory_afterslip_steps", False):
+        return max(1.0 - f, 0.05)
+    return max(1.0 - f * (1.0 - f_as), 0.05)
+
+
+def memory_steady_state_init(config, m_current, slip_rate):
+    """
+    Initial rate-state population
+
+    "steady": a synthetic steady-state shadow population drawn from the seeded
+    RNG: a fraction f (1 - f_as) of elements are in shadow with a remaining
+    integrated shadow tau ~ U[0, f * m_i(0) / v_i], i.e. ln xi = tau / t_a.
+    "fresh": xi = 1 everywhere (no RNG consumed). f = 0 consumes no RNG.
+    """
+    n = config.n_elements
+    xi = np.ones(n)
+    f = config.memory_reload_fraction
+    if getattr(config, "memory_init", "steady") != "steady" or f <= 0:
+        return xi
+    f_as = getattr(config, "afterslip_release_fraction", 0.0) if config.afterslip_enabled else 0.0
+    u = np.random.random(n)
+    in_shadow = u < f * (1.0 - f_as)
+    tau = np.random.random(n) * f * np.maximum(m_current, 0.0) / np.maximum(slip_rate, 1e-12)
+    logxi = np.where(in_shadow, tau / config.memory_relaxation_years, 0.0)
+    return np.exp(np.minimum(logxi, MEMORY_LOG_XI_MAX))
+
+
+def saturation_reference(config, tau_D):
+    """
+    Long-run mean of g for the saturating law, assuming element ages
+    (time since last rupture) are Erlang-2 distributed with mean tau_D.
+    """
+    override = getattr(config, "rate_saturation_reference", 0.0)
+    if override > 0:
+        return override
+    T_s = getattr(config, "rate_saturation_years", 30.0)
+    if getattr(config, "rate_saturation_shape", "exp") == "hill":
+        a = np.linspace(0.0, 20.0 * tau_D, 20001)
+        pdf = (4.0 * a / tau_D**2) * np.exp(-2.0 * a / tau_D)
+        x = a / T_s
+        nn = getattr(config, "rate_saturation_hill_n", 2.0)
+        g = x**nn / (1.0 + x**nn)
+        return float(np.trapezoid(g * pdf, a))
+    return 1.0 - (1.0 + tau_D / (2.0 * T_s)) ** (-2)
+
+
+def omori_integral(t1, t2, c, p):
+    """
+    int_{t1}^{t2} (tau + c)^(-p) dtau  (expected aftershocks per unit K)
+    """
+    if p == 1.0:
+        return np.log((t2 + c) / (t1 + c))
+    return ((t2 + c) ** (1.0 - p) - (t1 + c) ** (1.0 - p)) / (1.0 - p)
+
+
+def omori_productivity(magnitude, config):
+    """K = K_ref * 10^(alpha * (M - M_ref))"""
+    return config.omori_K_ref * 10 ** (
+        config.omori_alpha * (magnitude - config.omori_M_ref)
+    )
+
+
+def omori_step_rate(K, lag_steps, dt, config):
+    """
+    Step-averaged aftershock rate (events/yr) at integer lag k >= 1
+
+    Integrated mode: K * int_{(k-1) dt}^{k dt} (tau + c)^-p dtau / dt, i.e.
+    the expected count over the step divided by dt (so that rate * dt is the
+    expected count). Legacy mode: point sample K / (k dt + c)^p.
+    """
+    c, p = config.omori_c_years, config.omori_p
+    if getattr(config, "omori_integrate_over_step", False):
+        return K * omori_integral((lag_steps - 1) * dt, lag_steps * dt, c, p) / dt
+    return K / (lag_steps * dt + c) ** p
+
+
+def omori_lag_steps(config, dt):
+    """Maximum integer lag (in steps) tracked for a sequence."""
+    return int(round(config.omori_duration_years / dt))
+
+
+def omori_branching_ratio(config, dt):
+    """
+    Expected aftershocks per event (G-R averaged K times the kernel sum)
+    for the active Omori mode on the simulation grid.
+    """
+    M_array, dM, P_normalized = _gr_quadrature(config)
+    K_mean = np.sum(omori_productivity(M_array, config) * P_normalized * dM)
+    k_max = omori_lag_steps(config, dt)
+    kernel_sum = sum(omori_step_rate(1.0, k, dt, config) * dt for k in range(1, k_max + 1))
+    return K_mean * kernel_sum
+
+
 def compute_rate_parameters(config):
     """
     Compute initial rate parameters based on moment balance
@@ -117,6 +309,12 @@ def compute_rate_parameters(config):
     config.lambda_target = lambda_target
     config.recurrence_time_char = recurrence_time_char
 
+    # Reference deficit for the rate law lambda = C * corr * D_ref * (D/D_ref)^nu
+    # (legacy mode: the assumed equilibrium; moment_balance mode overrides it
+    # in calibrate_rate_to_reservoir once the actual reservoir exists)
+    config.deficit_reference = geom_moment_equilibrium
+    config.lambda_0 = C * geom_moment_equilibrium
+
     # Initialize adaptive correction factor
     config.rate_correction_factor = 1.0
     config.coupling_history = []  # Store periodically (every 100 years) for diagnostics
@@ -139,13 +337,25 @@ def compute_rate_parameters(config):
     print(f"\n  lambda(t) = lambda_background + C * correction_factor(t) * moment_deficit(t) + lambda_aftershock(t) + lambda_perturbation(t)")
 
     # Print adaptive correction status
-    if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
-        print(f"  ADAPTIVE CORRECTION: ENABLED (continuous updates every timestep)")
-        print(f"    Gain: {config.adaptive_correction_gain}")
-        print(f"    Will drive coupling -> 1.0")
+    mode = getattr(config, "adaptive_correction_mode", "legacy")
+    if mode == "legacy":
+        if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
+            print(f"  ADAPTIVE CORRECTION: ENABLED (legacy, continuous updates every timestep)")
+            print(f"    Gain: {config.adaptive_correction_gain}")
+            print(f"    Will drive coupling -> 1.0")
+        else:
+            print(f"  ADAPTIVE CORRECTION: DISABLED (fixed C, natural coupling)")
+            print(f"    Coupling will depend on G-R distribution and slip heterogeneity")
+    elif mode == "integral":
+        print(f"  ADAPTIVE CORRECTION: INTEGRAL trim (gain {config.adaptive_correction_gain} /yr, "
+              f"window {config.adaptive_correction_window_years} yr, "
+              f"bounds [{config.correction_factor_min}, {config.correction_factor_max}])")
     else:
-        print(f"  ADAPTIVE CORRECTION: DISABLED (fixed C, natural coupling)")
-        print(f"    Coupling will depend on G-R distribution and slip heterogeneity")
+        print(f"  ADAPTIVE CORRECTION: OFF (correction factor fixed at 1.0)")
+    print(f"  Rate mode: {getattr(config, 'rate_mode', 'legacy')}, "
+          f"deficit source: {getattr(config, 'deficit_source', 'tracked')}, "
+          f"deficit exponent nu = {getattr(config, 'deficit_exponent', 1.0)}")
+    print(f"  Event sampling: {getattr(config, 'event_sampling', 'deterministic')}")
 
     # Print Omori aftershock parameters if enabled
     if hasattr(config, "omori_enabled") and config.omori_enabled:
@@ -158,6 +368,10 @@ def compute_rate_parameters(config):
         print(f"    Duration: {config.omori_duration_years:.1f} years per sequence")
         K_M7 = config.omori_K_ref * 10 ** (config.omori_alpha * (7.0 - config.omori_M_ref))
         print(f"    Example: M7.0 -> K = {K_M7:.3f} events/yr")
+        integrated = getattr(config, "omori_integrate_over_step", False)
+        print(f"    Time integration: {'integrated over each step' if integrated else 'point-sampled at grid lags (legacy)'}")
+        n_branch = omori_branching_ratio(config, config.time_step_years)
+        print(f"    Branching ratio (expected aftershocks per event on the grid): {n_branch:.3f}")
     else:
         print(f"\n  OMORI AFTERSHOCKS DISABLED")
 
@@ -182,14 +396,117 @@ def compute_rate_parameters(config):
     return C
 
 
+def calibrate_rate_to_reservoir(config, m_current, slip_rate):
+    """
+    Set the rate coefficient from moment balance at the actual reservoir
+
+    rate_mode == "moment_balance":
+        lambda_0 = (1 - f_as) * L_tot / E[m](D_ref)
+        C = lambda_0 / D_ref
+    where L_tot is the full geometric loading rate (background + pulses),
+    D_ref is the reference reservoir (the spin-up reservoir D_res(0) unless
+    deficit_reference_years > 0), E[m] is the expected moment per event
+    (nominal G-R, or clipped to capacity at D_ref if
+    rate_expected_moment == "clipped"), and f_as is the fraction of loading
+    expected to be released aseismically by afterslip.
+
+    Must be called after initialize_moment (needs m_current and slip_rate).
+    In legacy mode this only records L_tot and D_res(0) for diagnostics.
+
+    Returns:
+    --------
+    C : float  (events/yr per m^3)
+    """
+    area = config.element_area_m2
+    L_tot = float(np.sum(slip_rate) * area)
+    D_0 = float(np.sum(m_current) * area)
+    config.geom_loading_rate_total = L_tot
+    config.initial_reservoir = D_0
+    # Per-element saturation deficit for the saturating rate law (private:
+    # arrays must not be serialized into the HDF5 config group)
+    T_s = getattr(config, "rate_saturation_years", 30.0)
+    config._m_sat = np.maximum(slip_rate, 1e-12) * T_s
+
+    if getattr(config, "rate_mode", "legacy") != "moment_balance":
+        return config.C_rate_base
+
+    ref_years = getattr(config, "deficit_reference_years", 0.0)
+    D_ref = ref_years * L_tot if ref_years > 0 else D_0
+
+    if getattr(config, "rate_expected_moment", "gr") == "clipped":
+        expected_moment = compute_expected_clipped_moment(config, D_ref)
+    else:
+        expected_moment = compute_expected_moment_per_event(config)
+
+    f_as = getattr(config, "afterslip_release_fraction", 0.0)
+    if not config.afterslip_enabled:
+        f_as = 0.0
+    f_as = min(max(f_as, 0.0), 0.95)
+
+    lambda_bar = (1.0 - f_as) * L_tot / expected_moment
+    n_branch = 0.0
+    if getattr(config, "rate_omori_branching_correction", False) and config.omori_enabled:
+        n_branch = omori_branching_ratio(config, config.time_step_years)
+        lambda_bar *= (1.0 - n_branch)
+    config.omori_branching_used = n_branch
+    rate_law = getattr(config, "rate_law", "power")
+    if rate_law == "memory":
+        state_ref = memory_reference_H(config)
+    elif rate_law == "saturating":
+        state_ref = saturation_reference(config, D_ref / L_tot)
+    else:
+        state_ref = 1.0
+    lambda_0 = lambda_bar / state_ref  # rate in the fully recovered state
+    C = lambda_0 / D_ref
+
+    config.C_rate_base = C
+    config.lambda_bar = lambda_bar
+    config.lambda_0 = lambda_0
+    config.rate_state_reference = state_ref
+    config.deficit_reference = D_ref
+    config.expected_geom_moment_per_event = expected_moment
+    config.rate_correction_factor = 1.0
+
+    print("\n" + "=" * 70)
+    print("RATE CALIBRATED TO RESERVOIR (moment_balance mode)")
+    print("=" * 70)
+    print(f"  Total geometric loading rate L_tot: {L_tot:.3e} m^3/yr")
+    print(f"  Initial reservoir D_res(0): {D_0:.3e} m^3 ({D_0 / L_tot:.1f} yr of loading)")
+    print(f"  Reference deficit D_ref: {D_ref:.3e} m^3 ({D_ref / L_tot:.1f} yr of loading)")
+    print(f"  Expected moment per event ({getattr(config, 'rate_expected_moment', 'gr')}): {expected_moment:.3e} m^3")
+    print(f"  Afterslip release fraction f_as: {f_as:.2f}")
+    print(f"  lambda_bar = (1 - n_b) (1 - f_as) L_tot / E[m] = {lambda_bar:.4f} events/yr "
+          f"(loading term; branching n_b = {n_branch:.3f} -> total ~{lambda_bar / max(1 - n_branch, 1e-6):.3f}/yr)")
+    print(f"  Controller target: {getattr(config, 'adaptive_correction_target', 'coupling')}, "
+          f"deficit exponent nu = {getattr(config, 'deficit_exponent', 1.0)}")
+    print(f"  Rate law: {rate_law}; reference state = {state_ref:.3f}; "
+          f"lambda_0 = lambda_bar / ref = {lambda_0:.4f} events/yr (recovered state)")
+    if rate_law == "memory":
+        f, t_a = config.memory_reload_fraction, config.memory_relaxation_years
+        print(f"  Memory shadow: f = {f}, t_a = {t_a} yr; a 1.2 m slip at 15 mm/yr shadows its patch "
+              f"for ~{f * 1.2 / 0.015:.0f} yr (depth exp(-{f * 1.2 / (0.015 * t_a):.1f}))")
+    elif rate_law == "saturating":
+        print(f"  Saturating shadow: T_s = {config.rate_saturation_years} yr ({config.rate_saturation_shape})")
+    else:
+        print(f"  C = lambda_0 / D_ref = {C:.3e} (events/yr)/m^3, nu = {getattr(config, 'deficit_exponent', 1.0)}")
+    print("=" * 70)
+    return C
+
+
 def update_rate_correction(
     config, cumulative_loading, cumulative_release, current_time, dt_years
 ):
     """
     Update adaptive rate correction factor based on observed coupling
 
-    Uses continuous proportional control to drive coupling toward 1.0
-    Updates every timestep (no artificial 100-year interval)
+    adaptive_correction_mode:
+      "legacy":   proportional update on the run-cumulative coupling, gated by
+                  adaptive_correction_enabled (the original scheme).
+      "integral": slow integral trim corr += gain * (1 - kappa_w) * dt with
+                  anti-windup, where kappa_w = R_w / L_w is the coupling over
+                  an exponentially weighted window of
+                  adaptive_correction_window_years (0 = run-cumulative).
+      "off":      correction factor stays at 1.0.
 
     Parameters:
     -----------
@@ -207,6 +524,24 @@ def update_rate_correction(
     --------
     None (updates config.rate_correction_factor in place)
     """
+    mode = getattr(config, "adaptive_correction_mode", "legacy")
+
+    if mode == "off":
+        config.rate_correction_factor = 1.0
+        return
+
+    if mode == "integral":
+        if getattr(config, "adaptive_correction_target", "coupling") == "reservoir":
+            _update_rate_correction_reservoir(
+                config, cumulative_loading, cumulative_release, dt_years
+            )
+        else:
+            _update_rate_correction_integral(
+                config, cumulative_loading, cumulative_release, dt_years
+            )
+        return
+
+    # Legacy proportional scheme
     # Skip if correction is disabled
     if not (hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled):
         return
@@ -246,6 +581,80 @@ def update_rate_correction(
         )
 
 
+def _update_rate_correction_integral(
+    config, cumulative_loading, cumulative_release, dt_years
+):
+    """
+    Slow integral trim on a windowed coupling with anti-windup
+
+    State is kept in private attributes on config (excluded from to_dict):
+      _ctrl_prev_L, _ctrl_prev_R : cumulative values at the previous call
+      _ctrl_L_w, _ctrl_R_w       : EWMA sums of loading and release
+    The window sums are initialized at balance (L_w = R_w = L_tot * tau_w)
+    so there is no start-up kick.
+    """
+    tau_w = getattr(config, "adaptive_correction_window_years", 0.0)
+    gain = config.adaptive_correction_gain
+
+    if not hasattr(config, "_ctrl_prev_L"):
+        config._ctrl_prev_L = 0.0
+        config._ctrl_prev_R = 0.0
+        L_tot = getattr(config, "geom_loading_rate_total", config.geom_loading_rate)
+        config._ctrl_L_w = L_tot * tau_w if tau_w > 0 else 0.0
+        config._ctrl_R_w = L_tot * tau_w if tau_w > 0 else 0.0
+
+    dL = cumulative_loading - config._ctrl_prev_L
+    dR = cumulative_release - config._ctrl_prev_R
+    config._ctrl_prev_L = cumulative_loading
+    config._ctrl_prev_R = cumulative_release
+
+    if tau_w > 0:
+        decay = min(dt_years / tau_w, 1.0)
+        config._ctrl_L_w = config._ctrl_L_w * (1.0 - decay) + dL
+        config._ctrl_R_w = config._ctrl_R_w * (1.0 - decay) + dR
+    else:
+        config._ctrl_L_w += dL
+        config._ctrl_R_w += dR
+
+    if config._ctrl_L_w <= 0:
+        return
+
+    kappa = config._ctrl_R_w / config._ctrl_L_w
+    config.windowed_coupling = kappa
+    adjustment = gain * (1.0 - kappa) * dt_years
+
+    corr = config.rate_correction_factor
+    lo, hi = config.correction_factor_min, config.correction_factor_max
+    # Anti-windup: do not integrate further into a bound
+    if (corr >= hi and adjustment > 0) or (corr <= lo and adjustment < 0):
+        return
+    config.rate_correction_factor = max(lo, min(hi, corr + adjustment))
+
+
+def _update_rate_correction_reservoir(
+    config, cumulative_loading, cumulative_release, dt_years
+):
+    """
+    Integral trim on the reservoir error with anti-windup
+
+    corr += gain * (D / D_ref - 1) * dt, with D = D_0 + L_cum - R_cum (exact
+    reservoir identity). Pair with deficit_exponent > 0 (proportional term)
+    for a damped loop: zeta = nu / (2 sqrt(gain * T_ref)).
+    """
+    D = config.initial_reservoir + cumulative_loading - cumulative_release
+    D_ref = config.deficit_reference
+    if D_ref <= 0:
+        return
+    err = D / D_ref - 1.0
+    config.reservoir_error = err
+    adjustment = config.adaptive_correction_gain * err * dt_years
+    corr = config.rate_correction_factor
+    lo, hi = config.correction_factor_min, config.correction_factor_max
+    if (corr >= hi and adjustment > 0) or (corr <= lo and adjustment < 0):
+        return
+    config.rate_correction_factor = max(lo, min(hi, corr + adjustment))
+
+
 def earthquake_rate(
     m_current,
     event_history,
@@ -253,18 +662,23 @@ def earthquake_rate(
     config,
     cumulative_loading,
     cumulative_release,
+    dt_years=None,
+    memory_h=None,
 ):
     """
     Compute instantaneous earthquake rate based on moment deficit
 
-    lambda(t) = C_base * correction_factor(t) * max(0, moment_deficit)
+    lambda(t) = C_base * correction_factor(t) * D_ref * (D / D_ref)^nu
+                + lambda_background + lambda_aftershock + lambda_perturbation
 
-    The correction factor adapts to ensure moment balance
+    D is the tracked deficit max(0, L_cum - R_cum) (deficit_source="tracked")
+    or the actual reservoir element_area * sum(m_current) ("reservoir");
+    nu = deficit_exponent (1 reproduces lambda = C * corr * D exactly).
 
     Parameters:
     -----------
     m_current : array
-        Current geometric moment (m^3) at each element
+        Current slip deficit (m) at each element
     event_history : list
         List of past events
     current_time : float
@@ -274,6 +688,9 @@ def earthquake_rate(
         Total geometric moment loaded since t=0 (m^3)
     cumulative_release : float
         Total geometric moment released by events (m^3)
+    dt_years : float, optional
+        Timestep (years); defaults to config.time_step_years. Used for the
+        integer-lag Omori integration.
 
     Returns:
     --------
@@ -282,13 +699,43 @@ def earthquake_rate(
     components : dict
         Breakdown of rate components
     """
+    if dt_years is None:
+        dt_years = config.time_step_years
 
     # Moment deficit (should always be >= 0)
-    moment_deficit = cumulative_loading - cumulative_release
+    if getattr(config, "deficit_source", "tracked") == "reservoir":
+        moment_deficit = float(np.sum(m_current)) * config.element_area_m2
+    else:
+        moment_deficit = cumulative_loading - cumulative_release
     moment_deficit = max(0.0, moment_deficit)
 
-    # Base rate proportional to moment deficit, with adaptive correction
-    lambda_loading = config.C_rate_base * config.rate_correction_factor * moment_deficit
+    # Base rate from the moment deficit, with adaptive correction
+    nu = getattr(config, "deficit_exponent", 1.0)
+    saturation = np.nan
+    rate_law = getattr(config, "rate_law", "power")
+    if rate_law == "saturating":
+        # Stress-shadow law: lambda_0 times the mean per-element recharge state
+        g = saturation_weights(m_current, config)
+        saturation = float(np.mean(g))
+        lambda_loading = config.lambda_0 * config.rate_correction_factor * saturation
+    elif rate_law == "memory":
+        # Dieterich rate-state shadow: lambda_0 times the mean of h_i = 1/xi_i
+        saturation = float(np.mean(memory_h))
+        lambda_loading = config.lambda_0 * config.rate_correction_factor * saturation
+    elif nu == 1.0:
+        lambda_loading = config.C_rate_base * config.rate_correction_factor * moment_deficit
+    else:
+        # lambda_0 = C * D_ref is the rate at the reference deficit
+        D_ref = config.deficit_reference
+        lambda_loading = (
+            config.lambda_0
+            * config.rate_correction_factor
+            * (moment_deficit / D_ref) ** nu
+        )
+
+    # Proportional reservoir feedback for the shadow laws
+    if rate_law in ("memory", "saturating") and nu != 0.0 and config.deficit_reference > 0:
+        lambda_loading *= (moment_deficit / config.deficit_reference) ** nu
 
     # Steady background rate (external forcing independent of moment deficit)
     lambda_background = getattr(config, 'lambda_background', 0.0)
@@ -302,26 +749,37 @@ def earthquake_rate(
         and hasattr(config, "omori_enabled")
         and config.omori_enabled
     ):
-        # Use c directly in years
-        omori_c_years = config.omori_c_years
+        if getattr(config, "omori_integrate_over_step", False):
+            # Expected count over the step (t - dt, t], at integer grid lags.
+            # Events created during the current step are not yet in
+            # event_history, so lag 0 never occurs; the previous step's
+            # event delivers its whole first year at lag 1.
+            k_max = omori_lag_steps(config, dt_years)
+            for event in event_history:
+                lag = int(round((current_time - event["time"]) / dt_years))
+                if 1 <= lag <= k_max:
+                    n_active_sequences += 1
+                    K = omori_productivity(event["magnitude"], config)
+                    lambda_aftershock += omori_step_rate(K, lag, dt_years, config)
+        else:
+            # Legacy point sampling at the raw grid lag
+            omori_c_years = config.omori_c_years
+            for event in event_history:
+                dt_event = current_time - event["time"]
 
-        # Loop only over recent events (performance optimization)
-        for event in event_history:
-            dt_years = current_time - event["time"]
+                # Only consider events within aftershock duration window
+                if 0 < dt_event <= config.omori_duration_years:
+                    n_active_sequences += 1
 
-            # Only consider events within aftershock duration window
-            if 0 < dt_years <= config.omori_duration_years:
-                n_active_sequences += 1
+                    # Omori-Utsu law: lambda(t) = K / (t + c)^p
+                    # K scales with mainshock magnitude: K = K_ref * 10^(alpha * (M - M_ref))
+                    M_mainshock = event["magnitude"]
+                    K = config.omori_K_ref * 10 ** (
+                        config.omori_alpha * (M_mainshock - config.omori_M_ref)
+                    )
 
-                # Omori-Utsu law: lambda(t) = K / (t + c)^p
-                # K scales with mainshock magnitude: K = K_ref * 10^(alpha * (M - M_ref))
-                M_mainshock = event["magnitude"]
-                K = config.omori_K_ref * 10 ** (
-                    config.omori_alpha * (M_mainshock - config.omori_M_ref)
-                )
-
-                # Add this mainshock's aftershock contribution
-                lambda_aftershock += K / (dt_years + omori_c_years) ** config.omori_p
+                    # Add this mainshock's aftershock contribution
+                    lambda_aftershock += K / (dt_event + omori_c_years) ** config.omori_p
 
     # Random perturbations (stochastic external forcing)
     lambda_perturbation = 0.0
@@ -346,6 +804,7 @@ def earthquake_rate(
         "n_active_sequences": n_active_sequences,
         "moment_deficit": moment_deficit,
         "correction_factor": config.rate_correction_factor,
+        "saturation": saturation,
     }
 
     return lambda_t, components

@@ -11,6 +11,9 @@ The same spatial kernel Phi is used for aftershock localization.
 """
 
 import numpy as np
+from scipy.spatial import cKDTree
+
+from temporal_prob import omori_lag_steps, omori_productivity, omori_step_rate
 
 
 def calculate_spatial_activation_kernel(mesh, ruptured_elements, magnitude, config):
@@ -58,24 +61,24 @@ def calculate_spatial_activation_kernel(mesh, ruptured_elements, magnitude, conf
         * (magnitude / config.afterslip_M_ref) ** config.afterslip_beta
     )
 
-    # For each element, compute minimum anisotropic distance to rupture zone
-    for i in range(n_elements):
-        # Component-wise distances to all ruptured patches
-        dx = all_positions[i, 0] - ruptured_positions[:, 0]  # Along-strike (x)
-        dz = all_positions[i, 2] - ruptured_positions[:, 2]  # Down-dip (z)
+    # Minimum anisotropic distance from every element to the rupture zone:
+    # d_scaled = sqrt((dx/xi_x)^2 + (dz/xi_z)^2) is the Euclidean distance in
+    # coordinates scaled by (xi_x, xi_z), so a KD-tree on the scaled ruptured
+    # positions gives the nearest-rupture distance for all elements at once.
+    scaled_ruptured = np.column_stack(
+        (ruptured_positions[:, 0] / xi_x, ruptured_positions[:, 2] / xi_z)
+    )
+    scaled_all = np.column_stack((all_positions[:, 0] / xi_x, all_positions[:, 2] / xi_z))
+    min_dist_scaled, _ = cKDTree(scaled_ruptured).query(scaled_all)
 
-        # Anisotropic distance: d_scaled = sqrt((dx/xi_x)^2 + (dz/xi_z)^2)
-        distances_scaled = np.sqrt((dx / xi_x) ** 2 + (dz / xi_z) ** 2)
-        min_dist_scaled = np.min(distances_scaled)
+    # Apply spatial kernel
+    if config.afterslip_kernel_type == "exponential":
+        # Exponential decay: Phi = exp(-d_scaled)
+        Phi = np.exp(-min_dist_scaled)
 
-        # Apply spatial kernel
-        if config.afterslip_kernel_type == "exponential":
-            # Exponential decay: Phi = exp(-d_scaled)
-            Phi[i] = np.exp(-min_dist_scaled)
-
-        elif config.afterslip_kernel_type == "power_law":
-            # Power law decay: Phi = (1 + d_scaled)^(-n)
-            Phi[i] = (1 + min_dist_scaled) ** (-config.afterslip_power_law_exponent)
+    elif config.afterslip_kernel_type == "power_law":
+        # Power law decay: Phi = (1 + d_scaled)^(-n)
+        Phi = (1 + min_dist_scaled) ** (-config.afterslip_power_law_exponent)
 
     # Normalize to max of 1.0
     if Phi.max() > 0:
@@ -144,6 +147,14 @@ def initialize_afterslip_sequence(event, m_current, mesh, config):
     # This prevents afterslip from leaking to boundaries with high m_residual but low Phi
     spatial_mask = Phi >= config.afterslip_spatial_threshold
     m_residual_initial[~spatial_mask] = 0.0  # Zero out m_residual outside halo
+
+    # Optional cap: sequence budget <= fraction x coseismic geometric moment
+    budget_fraction = getattr(config, "afterslip_budget_fraction", 0.0)
+    if budget_fraction > 0 and "geom_moment" in event:
+        budget = np.sum(m_residual_initial) * config.element_area_m2
+        cap = budget_fraction * event["geom_moment"]
+        if budget > cap > 0:
+            m_residual_initial *= cap / budget
 
     # Initial velocity field (MaxEnt form: v proportional to Phi * m_residual)
     # This creates peak afterslip in halo region (high m_residual, medium Phi)
@@ -339,15 +350,28 @@ def compute_aftershock_spatial_weights(event_history, current_time, config):
     if not config.omori_enabled:
         return weights, n_active_sequences
 
+    integrated = getattr(config, "omori_integrate_over_step", False)
+    dt_step = config.time_step_years
+    k_max = omori_lag_steps(config, dt_step)
+
     # Omori parameters (use c directly in years)
     omori_c_years = config.omori_c_years
 
     for event in event_history:
         dt_years = current_time - event["time"]
 
-        # Only consider events within aftershock duration window
-        if not (0 < dt_years <= config.omori_duration_years):
-            continue
+        if integrated:
+            # Same integer-lag, step-integrated kernel as the rate term
+            lag = int(round(dt_years / dt_step))
+            if not (1 <= lag <= k_max):
+                if lag > k_max and event.get("spatial_activation") is not None \
+                        and event.get("afterslip_sequence_id") is None:
+                    event["spatial_activation"] = None  # free expired kernels
+                continue
+        else:
+            # Only consider events within aftershock duration window
+            if not (0 < dt_years <= config.omori_duration_years):
+                continue
 
         # Get spatial activation for this mainshock
         # Note: Will be None when afterslip_enabled=False (uniform spatial weighting)
@@ -357,12 +381,16 @@ def compute_aftershock_spatial_weights(event_history, current_time, config):
 
         n_active_sequences += 1
 
-        # Omori temporal weight: K / (t + c)^p
+        # Omori temporal weight
         M_mainshock = event["magnitude"]
-        K = config.omori_K_ref * 10 ** (
-            config.omori_alpha * (M_mainshock - config.omori_M_ref)
-        )
-        temporal_weight = K / (dt_years + omori_c_years) ** config.omori_p
+        if integrated:
+            K = omori_productivity(M_mainshock, config)
+            temporal_weight = omori_step_rate(K, lag, dt_step, config)
+        else:
+            K = config.omori_K_ref * 10 ** (
+                config.omori_alpha * (M_mainshock - config.omori_M_ref)
+            )
+            temporal_weight = K / (dt_years + omori_c_years) ** config.omori_p
 
         # Add spatial contribution from this mainshock
         # Phi ranges [0, 1], so this adds more weight near rupture zones

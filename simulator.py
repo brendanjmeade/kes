@@ -15,8 +15,14 @@ from moment import (
 )
 from temporal_prob import (
     compute_rate_parameters,
+    calibrate_rate_to_reservoir,
     earthquake_rate,
     update_rate_correction,
+    saturation_weights,
+    memory_relax,
+    memory_rupture_update,
+    memory_weights,
+    memory_steady_state_init,
 )
 from spatial_prob import spatial_probability
 from slip_generator import generate_slip_distribution
@@ -26,6 +32,7 @@ from afterslip import (
     update_afterslip_sequences,
     get_active_afterslip_sequences,
     compute_aftershock_spatial_weights,
+    calculate_spatial_activation_kernel,
 )
 
 
@@ -88,6 +95,10 @@ def run_simulation(config):
     # Initialize moment distribution
     m_current, slip_rate = initialize_moment(config, mesh)
 
+    # Calibrate the rate coefficient to the actual reservoir (moment_balance
+    # mode); in legacy mode this only records L_tot and D_res(0)
+    calibrate_rate_to_reservoir(config, m_current, slip_rate)
+
     # Initialize HDF5 storage
     output_path = Path(config.output_dir) / config.output_hdf5
     output_path.parent.mkdir(exist_ok=True)
@@ -119,6 +130,32 @@ def run_simulation(config):
     initial_geom_moment = np.sum(m_current * config.element_area_m2)  # Geometric moment (m^3)
     cumulative_loading = 0.0  # Start at zero, accumulate geometric moment over time
     cumulative_release = 0.0  # No events yet
+    initial_reservoir = initial_geom_moment  # D_0: identity D_res = D_0 + L_cum - R_cum
+    h5file.attrs['initial_reservoir'] = initial_reservoir
+
+    n_null_events = 0  # nucleation attempts on fully depleted patches (not recorded)
+
+    # Event sampling mode
+    event_sampling = getattr(config, "event_sampling", "deterministic")
+    if event_sampling not in ("deterministic", "poisson"):
+        raise ValueError(f"Unknown event_sampling: {event_sampling!r}")
+    substep_times = getattr(config, "event_substep_times", False)
+    omori_spatial_M_min = getattr(config, "omori_spatial_M_min", np.inf)
+    clip_afterslip = getattr(config, "afterslip_clip_to_deficit", False)
+    rate_law = getattr(config, "rate_law", "power")
+    spatial_weighting = (
+        rate_law in ("saturating", "memory")
+        and getattr(config, "rate_spatial_weighting", False)
+    )
+    memory_on = rate_law == "memory"
+    memory_afterslip = memory_on and getattr(config, "memory_afterslip_steps", False)
+    if memory_on:
+        memory_xi = memory_steady_state_init(config, m_current, slip_rate)
+        memory_h = memory_weights(memory_xi)
+    else:
+        memory_xi = None
+        memory_h = None
+    check_identity = getattr(config, "check_reservoir_identity", False)
 
     # Track spatial cumulative release for visualization
     m_release_cumulative = np.zeros(config.n_elements)  # Cumulative slip released at each element
@@ -136,9 +173,17 @@ def run_simulation(config):
     print(f"  Duration: {config.duration_years} years")
     print(f"  Time steps: {config.n_time_steps}")
     print(f"  Time step size: {config.time_step_years} years")
-    print("  Event generation: Deterministic accumulator")
+    if event_sampling == "poisson":
+        print("  Event generation: Poisson sampling of lambda * dt")
+    else:
+        print("  Event generation: Deterministic accumulator")
     print(f"  Initial slip deficit: {initial_slip_deficit:.2e} m")
-    print(f"  Initial geometric moment: {initial_geom_moment:.2e} m^3")
+    print(f"  Initial geometric moment: {initial_geom_moment:.2e} m^3 "
+          f"({initial_geom_moment / config.geom_loading_rate_total:.1f} yr of loading; "
+          f"D_ref = {config.deficit_reference / config.geom_loading_rate_total:.1f} yr)")
+    print(f"  Controller: mode={getattr(config, 'adaptive_correction_mode', 'legacy')}, "
+          f"target={getattr(config, 'adaptive_correction_target', 'coupling')}, "
+          f"nu={getattr(config, 'deficit_exponent', 1.0)}")
     print(f"  Cumulative loading accounting: starts at 0.0 m^3")
     if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
         print(f"  Rate correction: CONTINUOUS (updated every timestep)")
@@ -173,7 +218,18 @@ def run_simulation(config):
                 )
 
                 # Apply afterslip release to moment field (reduces deficit)
+                if clip_afterslip:
+                    # Never release more than the local deficit
+                    afterslip_release = np.minimum(
+                        afterslip_release, np.maximum(m_current, 0.0)
+                    )
                 m_current -= afterslip_release  # Element-wise slip (m)
+
+                if memory_afterslip:
+                    memory_rupture_update(
+                        memory_xi, np.nonzero(afterslip_release > 0)[0],
+                        afterslip_release, slip_rate, config,
+                    )
 
                 # Track cumulative afterslip
                 afterslip_cumulative += afterslip_release
@@ -184,6 +240,11 @@ def run_simulation(config):
 
         # Accumulate slip deficit (m_current is in meters)
         m_current = accumulate_moment(m_current, slip_rate, dt_years)
+
+        # Rate-state shadow relaxes toward full recovery
+        if memory_on:
+            memory_relax(memory_xi, dt_years, config)
+            memory_h = memory_weights(memory_xi)
 
         # Update cumulative loading (geometric moment in m^3)
         # slip_rate (m/yr) * area (m^2) * dt (yr) = m^3
@@ -205,20 +266,31 @@ def run_simulation(config):
             config,
             cumulative_loading,
             cumulative_release,
+            dt_years=dt_years,
+            memory_h=memory_h,
         )
 
-        # Accumulate fractional events
-        event_debt += lambda_t * dt_years
+        # Expected number of events this step
+        mu = lambda_t * dt_years
 
-        # Store debt BEFORE event subtraction (to capture peaks > 1.0)
-        event_debt_history.append(event_debt)
+        if event_sampling == "poisson":
+            n_events = int(np.random.poisson(mu))
+            debt_pre = np.nan
+        else:
+            # Accumulate fractional events
+            event_debt += mu
+
+            # Debt BEFORE event subtraction (captures peaks > 1.0)
+            debt_pre = event_debt
+
+            # Generate integer number of events when debt >= 1
+            n_events = int(event_debt)
+            event_debt -= n_events
+
+        event_debt_history.append(debt_pre)
 
         # Store instantaneous rate
         lambda_history.append(lambda_t)
-
-        # Generate integer number of events when debt >= 1
-        n_events = int(event_debt)
-        event_debt -= n_events
 
         # Generate each event
         if n_events > 0:
@@ -287,15 +359,28 @@ def run_simulation(config):
             #             f"Event {len(event_history)}: t={current_time:.2f} yr, M={M_actual:.2f}, "
             #             f"coupling={cumulative_release / cumulative_loading:.3f}"
             #         )
-            # Around line 140-180 in the event generation loop
+            # Sub-step time offsets (catalog statistics only; dynamics stay on grid)
+            if substep_times:
+                time_offsets = np.sort(np.random.uniform(0.0, dt_years, n_events))
+            else:
+                time_offsets = np.zeros(n_events)
 
             for j in range(n_events):
                 # Draw magnitude from G-R distribution
                 magnitude = draw_magnitude(config)
 
                 # Compute spatial probability for this magnitude (with aftershock weighting)
+                nucleation_weights = aftershock_spatial_weights
+                if spatial_weighting:
+                    # Patches still in the stress shadow are less likely to nucleate
+                    if memory_on:
+                        nucleation_weights = aftershock_spatial_weights * memory_h
+                    else:
+                        nucleation_weights = aftershock_spatial_weights * saturation_weights(
+                            m_working, config
+                        )
                 p_spatial, gamma_used = spatial_probability(
-                    m_working, magnitude, config, aftershock_spatial_weights
+                    m_working, magnitude, config, nucleation_weights
                 )
 
                 # Sample hypocenter location
@@ -305,6 +390,12 @@ def run_simulation(config):
                 slip, ruptured_elements, M0_actual = generate_slip_distribution(
                     hypocenter_idx, magnitude, m_working, mesh, config
                 )
+
+                if M0_actual <= 0.0:
+                    # Nucleation on a fully depleted patch: nothing to release.
+                    # Not recorded as an event (it would have M = -inf).
+                    n_null_events += 1
+                    continue
 
                 M_actual = seismic_moment_to_magnitude(M0_actual)
 
@@ -318,6 +409,12 @@ def run_simulation(config):
                 # Update cumulative release with actual geometric moment
                 cumulative_release += geom_moment_released
 
+                # Stress-drop step on the rate-state shadow of the ruptured elements
+                if memory_on:
+                    memory_rupture_update(memory_xi, ruptured_elements, slip, slip_rate, config)
+                    if spatial_weighting:
+                        memory_h = memory_weights(memory_xi)
+
                 # Update spatial cumulative release (for visualization)
                 m_release_cumulative += slip
 
@@ -327,7 +424,9 @@ def run_simulation(config):
 
                 event = {
                     "time": current_time,
+                    "time_offset": float(time_offsets[j]),
                     "magnitude": M_actual,
+                    "magnitude_nominal": float(magnitude),
                     "M0": M0_actual,
                     "geom_moment": geom_moment_released,  # CRITICAL: Store actual geometric moment
                     "hypocenter_idx": hypocenter_idx,
@@ -356,6 +455,16 @@ def run_simulation(config):
                     # Store reference to spatial activation in event (for aftershock localization)
                     event['spatial_activation'] = afterslip_seq['Phi']
                     event['afterslip_sequence_id'] = len(afterslip_sequences) - 1
+                elif (
+                    config.omori_enabled
+                    and M_actual >= omori_spatial_M_min
+                    and len(ruptured_elements) > 0
+                ):
+                    # Aftershock localization kernel independent of afterslip
+                    event['spatial_activation'] = calculate_spatial_activation_kernel(
+                        mesh, ruptured_elements, M_actual, config
+                    ).astype(np.float32)
+                    event['afterslip_sequence_id'] = None
                 else:
                     event['spatial_activation'] = None
                     event['afterslip_sequence_id'] = None
@@ -391,6 +500,35 @@ def run_simulation(config):
             config, cumulative_loading, cumulative_release, current_time, dt_years
         )
 
+        reservoir = float(np.sum(m_current)) * config.element_area_m2
+        if check_identity:
+            expected = initial_reservoir + cumulative_loading - cumulative_release
+            scale = max(abs(expected), abs(reservoir), 1.0)
+            if abs(reservoir - expected) > 1e-8 * scale:
+                raise AssertionError(
+                    f"Reservoir identity violated at t={current_time:.2f}: "
+                    f"D_res={reservoir:.6e} vs D_0+L-R={expected:.6e}"
+                )
+
+        # Per-timestep scalar history (every step, independent of snapshots)
+        hdf5_writer.append_step(
+            times=current_time,
+            lambda_total=lambda_t,
+            lambda_loading=components["loading"],
+            lambda_aftershock=components["aftershock"],
+            lambda_background=components["background"],
+            lambda_perturbation=components["perturbation"],
+            expected_count=mu,
+            n_events=n_events,
+            event_debt_pre=debt_pre,
+            correction_factor=config.rate_correction_factor,
+            coupling=(cumulative_release / cumulative_loading if cumulative_loading > 0 else np.nan),
+            moment_deficit=components["moment_deficit"],
+            reservoir=reservoir,
+            saturation=components.get("saturation", np.nan),
+            n_active_sequences=components["n_active_sequences"],
+        )
+
         # Save snapshots AFTER events and correction (captures full state)
         # Save at configured interval (default: every timestep)
         if i % snapshot_interval == 0:
@@ -405,11 +543,18 @@ def run_simulation(config):
             max_deficit_elem = max(max_deficit_elem, np.max(deficit))
 
             # Buffered write to HDF5
-            hdf5_writer.append(current_time, m_current, m_release_cumulative, event_debt, lambda_t, afterslip_cumulative)
+            hdf5_writer.append(current_time, m_current, m_release_cumulative, debt_pre, lambda_t, afterslip_cumulative)
+
+    h5file.attrs['n_null_events'] = n_null_events
+    if memory_on:
+        print(f"  Mean rate-state recovery <h>: {np.mean(memory_h):.3f} at end; "
+              f"reference H_bar = {config.rate_state_reference:.3f}")
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
     print(f"  Total events: {len(event_history)}")
+    if n_null_events:
+        print(f"  Null events (zero available moment, not recorded): {n_null_events}")
 
     if len(event_history) > 0:
         total_M0_released = sum(e["M0"] for e in event_history)
@@ -424,10 +569,8 @@ def run_simulation(config):
             f"\n  Average rate: {len(event_history) / config.duration_years:.6f} events/year"
         )
         print(f"  Final seismic coupling: {coupling:.4f}")
-        if hasattr(config, "adaptive_correction_enabled") and config.adaptive_correction_enabled:
-            print(f"  Final correction factor: {config.rate_correction_factor:.4f}")
-        else:
-            print(f"  Correction factor: {config.rate_correction_factor:.4f} (fixed, no adaptation)")
+        print(f"  Final correction factor: {config.rate_correction_factor:.4f} "
+              f"(mode: {getattr(config, 'adaptive_correction_mode', 'legacy')})")
         print(f"  Cumulative loading: {cumulative_loading:.2e} m^3")
         print(f"  Cumulative release: {cumulative_release:.2e} m^3")
         print(f"  Final deficit: {cumulative_loading - cumulative_release:.2e} m^3")
