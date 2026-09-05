@@ -27,6 +27,9 @@ STEP_HISTORY_FIELDS = [
     ('reservoir', 'f8'),
     ('saturation', 'f8'),
     ('n_active_sequences', 'i4'),
+    ('tilt_theta', 'f8'),
+    ('expected_moment', 'f8'),
+    ('lambda_omori_eligible', 'f8'),
 ]
 
 
@@ -187,6 +190,11 @@ def create_hdf5_file(filepath, config, mesh):
         ('lambda_t', 'f8'),
         ('time_offset', 'f8'),
         ('magnitude_nominal', 'f8'),
+        ('origin', 'i1'),           # 0 = loading, 1 = Omori child (omori_split_enabled)
+        ('parent_idx', 'i4'),       # index of the parent event in 'events' (-1 = none)
+        ('deficit_ratio', 'f8'),    # D_eff / D_w at the magnitude draw (loading events)
+        ('tilt_theta', 'f8'),       # tilt multiplier used for the draw
+        ('size_logweight', 'f8'),   # ln p_law(M_nom | D) - ln p_GR(M_nom)
     ])
 
     h5file.create_dataset(
@@ -393,6 +401,11 @@ def append_event(h5file, event):
         event['lambda_t'],
         event.get('time_offset', 0.0),
         event.get('magnitude_nominal', np.nan),
+        event.get('origin', 0),
+        event.get('parent_idx', -1),
+        event.get('deficit_ratio', np.nan),
+        event.get('tilt_theta', np.nan),
+        event.get('size_logweight', np.nan),
     )
 
     h5file['events'][n] = record
@@ -406,9 +419,11 @@ def append_event(h5file, event):
     event_group.create_dataset('ruptured_elements', data=event['ruptured_elements'], compression='gzip', compression_opts=4)
     event_group.create_dataset('slip', data=event['slip'], compression='gzip', compression_opts=4)
 
-    # Store components dictionary as attributes
+    # Store scalar components as attributes (array-valued entries such as the
+    # per-parent Omori rates of the split are runtime side channels, not output)
     for key, value in event['components'].items():
-        event_group.attrs[f'component_{key}'] = value
+        if np.ndim(value) == 0:
+            event_group.attrs[f'component_{key}'] = value
 
     # Update counter
     h5file.attrs['n_events'] = n + 1
@@ -687,6 +702,14 @@ class HDF5Results:
                                 if 'time_offset' in event_records.dtype.names else 0.0),
                 'magnitude_nominal': (float(event_records[i]['magnitude_nominal'])
                                       if 'magnitude_nominal' in event_records.dtype.names else np.nan),
+                'origin': (int(event_records[i]['origin'])
+                           if 'origin' in event_records.dtype.names else 0),
+                'parent_idx': (int(event_records[i]['parent_idx'])
+                               if 'parent_idx' in event_records.dtype.names else -1),
+                'deficit_ratio': (float(event_records[i]['deficit_ratio'])
+                                  if 'deficit_ratio' in event_records.dtype.names else np.nan),
+                'tilt_theta': (float(event_records[i]['tilt_theta'])
+                               if 'tilt_theta' in event_records.dtype.names else np.nan),
                 'ruptured_elements': event_group['ruptured_elements'][:],
                 'slip': event_group['slip'][:],
                 'components': components,

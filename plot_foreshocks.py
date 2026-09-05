@@ -29,6 +29,44 @@ are reported separately):
     non-overlapping windows. The accumulator is bounded at ~0.4 events at
     every window; Poisson sampling tracks sqrt(<N>) (dotted).
 
+Summary-only diagnostics (foreshocks_summary.txt; NaN wherever a run lacks
+the field or the statistic is undefined):
+- Spearman rho between the reservoir seen by each event (D_pre = step/
+  moment_deficit at the event's grid step, in years of loading) and its
+  released magnitude, for mainshocks and for all events, with the large-
+  sample SE 1/sqrt(n-3); the mean percentile of D_pre at mainshock times
+  within the pooled per-step reservoir distribution.
+- Mainshock recurrence (interval mean and CV pooled over runs) and P(an
+  M >= m_mainshock at lags 1..30 steps after an M >= 7.3 event), counting
+  only M >= 7.3 events with 30 yr of catalog left.
+- R_pre[-10,-1], R_post[1,10], R_post[11,30] per magnitude band [5,5.5),
+  [5.5,6), [6,6.5), [6.5,7), each normalized by its own long-term rate with
+  the exposure convention of stack_counts (unit-width lag bins).
+- Stacked mean of step/tilt_theta and of step/expected_moment / E_GR (E_GR =
+  config expected_geom_moment_per_event) over [-10,-1] and [1,10], for files
+  written with the deficit-tilted magnitude law.
+- Loading- vs Omori-origin counts of targets in [-10,-1] and [1,10] and the
+  ordering statistic for loading-origin targets (files with events['origin']).
+- Lollipop counts: for each run the largest event (released magnitude, the
+  earliest on ties) anchors a 1000-yr display window placed with the anchor
+  at 35% of its length (shifted to stay inside the catalog); the raw number
+  of M >= 5 and M >= 6 events of any origin (mainshocks included, the anchor
+  itself at lag 0 excluded, no edge correction) in [-10,-1], [1,10],
+  [-50,-1], [1,50] steps around the anchor is averaged over runs. A second
+  line repeats this for the largest event of every 1000-yr block of the
+  catalog (mean over blocks; blocks tile the run from t = 0, the last one
+  extends to the end of the catalog and a run shorter than 1000 yr is one
+  block, the same selection as plot_lollipop.py's 'block' table).
+- Deficit ratio D_eff/D_w recorded at loading-origin draws (events[
+  'deficit_ratio']): its mean in [-10,-1] and [1,10], over all targets and at
+  the mainshock draws, and Spearman rho(D_eff/D_w, M_nominal) over loading
+  draws with M_nominal >= 6.5.
+
+--origin all|loading|omori restricts the TARGET selection (never the
+mainshocks) of the rate ratios, ordering and clipping statistics by
+events['origin'] (0 loading, 1 Omori child); files without the field are
+all loading-origin, so 'omori' selects nothing there.
+
 Outputs:
     foreshocks.png          Four-panel figure (500 dpi)
     foreshocks_summary.txt  Acceptance numbers per ensemble
@@ -37,6 +75,7 @@ Usage:
     python plot_foreshocks.py [--input_dir DIR [DIR ...]] [--m_mainshock 7.5]
                               [--m_targets 5,6] [--window 50] [--bin 5]
                               [--local_km 25] [--n_boot 1000] [--output PATH]
+                              [--origin all|loading|omori]
 """
 
 import argparse
@@ -97,6 +136,18 @@ def load_runs(input_dir):
             }
             run["reservoir"] = None
             run["L_tot"] = float(h5.attrs["cumulative_loading"]) / float(cfg.duration_years)
+            run["moment_deficit"] = None
+            run["tilt_theta"] = None
+            run["expected_moment"] = None
+            run["E_gr"] = float(getattr(cfg, "expected_geom_moment_per_event", np.nan) or np.nan)
+            # Fields written since the deficit-tilted magnitude law (Aug 2026);
+            # older files: every event is loading-origin, deficit ratio unknown
+            run["has_origin"] = "origin" in events.dtype.names
+            run["origin"] = (events["origin"].astype(int) if run["has_origin"]
+                             else np.zeros(events.size, int))
+            run["deficit_ratio"] = (events["deficit_ratio"].astype(float)
+                                    if "deficit_ratio" in events.dtype.names
+                                    else np.full(events.size, np.nan))
             if "magnitude_nominal" in events.dtype.names and np.isfinite(events["magnitude_nominal"]).all():
                 run["m_nom"] = events["magnitude_nominal"].astype(float)
             else:
@@ -114,6 +165,9 @@ def load_runs(input_dir):
                 run["n_steps"] = st["times"].shape[0]
                 if "reservoir" in st:
                     run["reservoir"] = st["reservoir"][:]
+                for key in ("moment_deficit", "tilt_theta", "expected_moment"):
+                    if key in st:
+                        run[key] = st[key][:]
             else:
                 run["expected_count"] = lam * dt_step
                 run["lam_aftershock"] = reconstruct_legacy_omori(run, cfg)
@@ -160,12 +214,23 @@ def mainshock_mask(run, m_mainshock):
     return run["magnitude"] >= m_mainshock
 
 
-def stack_counts(runs, m_mainshock, m_target, window, width, local_km=None):
+def origin_mask(run, origin=None):
+    """Event selector by origin ('all', 'loading', 'omori'; default the run's --origin).
+    Files without events['origin'] are all loading-origin."""
+    origin = run.get("origin_sel", "all") if origin is None else origin
+    if origin == "all":
+        return np.ones(run["magnitude"].size, bool)
+    return run["origin"] == (1 if origin == "omori" else 0)
+
+
+def stack_counts(runs, m_mainshock, m_target, window, width, local_km=None, m_target_hi=None):
     """
     Observed and expected target-event counts per lag bin for every mainshock
 
     Returns dict with bin centers (years), per-mainshock observed and expected
     arrays (n_mainshocks x n_bins), and the number of same-step co-events.
+    Targets are M >= m_target (and < m_target_hi when given) non-mainshocks of
+    the run's --origin selection.
     """
     neg, pos = bin_edges(window, width)
     edges = np.concatenate([neg, pos])  # lag-0 bin is [0, 1) -> excluded below
@@ -177,7 +242,9 @@ def stack_counts(runs, m_mainshock, m_target, window, width, local_km=None):
         m, k, x = run["magnitude"], run["step_index"], run["x"]
         n_steps, dt_grid, T = run["n_steps"], run["dt_grid"], run["duration"]
         is_main = mainshock_mask(run, m_mainshock)
-        is_target = (m >= m_target) & ~is_main
+        is_target = (m >= m_target) & ~is_main & origin_mask(run)
+        if m_target_hi is not None:
+            is_target &= m < m_target_hi
         t_min = run.get("t_min", 0.0)
         for i in np.flatnonzero(is_main & (run["time"] >= t_min)):
             sel = is_target.copy()
@@ -332,13 +399,14 @@ def clipping_stats(runs, m_mainshock, window, tol=0.05):
     for run in runs:
         m, mn, k = run["magnitude"], run["m_nom"], run["step_index"]
         clipped = (mn - m) > tol
-        for key, sel in (("all", np.ones(m.size, bool)), ("6-7", (mn >= 6) & (mn < 7)), ("7+", mn >= 7)):
+        ok = origin_mask(run)
+        for key, sel in (("all", ok), ("6-7", ok & (mn >= 6) & (mn < 7)), ("7+", ok & (mn >= 7))):
             tot[key][0] += clipped[sel].sum(); tot[key][1] += sel.sum()
         k_main = k[mainshock_mask(run, m_mainshock) & (run["time"] >= run.get("t_min", 0.0))]
         for km in k_main:
             lag = k - km
-            pre = (lag >= -10) & (lag <= -1)
-            post = (lag >= 11) & (lag <= 30)
+            pre = (lag >= -10) & (lag <= -1) & ok
+            post = (lag >= 11) & (lag <= 30) & ok
             tot["pre"][0] += clipped[pre].sum(); tot["pre"][1] += pre.sum()
             tot["post"][0] += clipped[post].sum(); tot["post"][1] += post.sum()
     return {key: (v[0] / v[1] if v[1] else np.nan) for key, v in tot.items()}
@@ -364,14 +432,15 @@ def hosting_by_cycle_age(runs, m_ref=7.0, bands=((6.0, 6.5), (6.5, 7.0), (7.0, 7
     return {b: v[:, 0] / np.maximum(v[:, 1], 1) for b, v in table.items()}, {b: v[:, 1] for b, v in table.items()}, edges
 
 
-def magnitude_ordering(runs, m_mainshock, m_hi, m_lo, n_boot, rng):
-    """Share of M>=m_hi among M>=m_lo targets in [-10,-1] and [11,30] vs the global share."""
+def magnitude_ordering(runs, m_mainshock, m_hi, m_lo, n_boot, rng, origin=None):
+    """Share of M>=m_hi among M>=m_lo targets in [-10,-1] and [11,30] vs the global share
+    (targets of the run's --origin selection unless origin is given)."""
     pre_hi, pre_lo, post_hi, post_lo = [], [], [], []
     g_hi = g_lo = 0
     for run in runs:
         m, k = run["magnitude"], run["step_index"]
         is_main = mainshock_mask(run, m_mainshock)
-        tgt = ~is_main
+        tgt = ~is_main & origin_mask(run, origin)
         g_hi += ((m >= m_hi) & tgt).sum(); g_lo += ((m >= m_lo) & tgt).sum()
         for km in k[is_main & (run["time"] >= run.get("t_min", 0.0))]:
             lag = k - km
@@ -398,6 +467,246 @@ def magnitude_ordering(runs, m_mainshock, m_hi, m_lo, n_boot, rng):
 def aki_b(mags, m_min):
     m = mags[mags >= m_min]
     return np.log10(np.e) / (m.mean() - m_min) if m.size > 1 else np.nan
+
+
+# ----------------------------------------------------------------------------
+# Deficit, recurrence and composition diagnostics (summary lines only)
+# ----------------------------------------------------------------------------
+BANDS = ((5.0, 5.5), (5.5, 6.0), (6.0, 6.5), (6.5, 7.0))
+LOLLIPOP_LAGS = ((-10, -1), (1, 10), (-50, -1), (1, 50))
+
+
+def key_magnitude(run):
+    """Magnitude used for thresholds: released (default) or the nominal draw (--key nominal)."""
+    return run["m_nom"] if run.get("key", "actual") == "nominal" else run["magnitude"]
+
+
+def mainshock_steps(run, m_mainshock):
+    """Grid steps of the mainshocks that enter the stacks (after --t_min)."""
+    return run["step_index"][mainshock_mask(run, m_mainshock) & (run["time"] >= run.get("t_min", 0.0))]
+
+
+def average_ranks(x):
+    """Ranks 1..n with ties sharing their mean rank."""
+    order = np.argsort(x, kind="mergesort")
+    _, inv, counts = np.unique(x[order], return_inverse=True, return_counts=True)
+    cum = np.cumsum(counts)
+    avg = (cum - counts + 1 + cum) / 2.0
+    ranks = np.empty(x.size)
+    ranks[order] = avg[inv]
+    return ranks
+
+
+def spearman(x, y):
+    """Spearman rank correlation, its large-sample SE 1/sqrt(n-3), and n (NaN for n < 4)."""
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    ok = np.isfinite(x) & np.isfinite(y)
+    x, y = x[ok], y[ok]
+    n = int(x.size)
+    if n < 4:
+        return np.nan, np.nan, n
+    rx, ry = average_ranks(x), average_ranks(y)
+    rx -= rx.mean()
+    ry -= ry.mean()
+    den = np.sqrt((rx ** 2).sum() * (ry ** 2).sum())
+    rho = float((rx * ry).sum() / den) if den > 0 else np.nan
+    return rho, 1.0 / np.sqrt(n - 3), n
+
+
+def event_deficit(run):
+    """Reservoir (yr of loading) seen by each event: step/moment_deficit at the event's step."""
+    D = run["moment_deficit"]
+    if D is None:
+        return np.full(run["magnitude"].size, np.nan)
+    return D[np.clip(run["step_index"], 0, D.size - 1)] / run["L_tot"]
+
+
+def deficit_statistics(runs, m_mainshock):
+    """Spearman rho(D_pre, M) for mainshocks and for all events; mean percentile of D_pre at
+    mainshock times within the pooled per-step reservoir distribution."""
+    D_main, M_main, D_all, M_all, pool = [], [], [], [], []
+    for run in runs:
+        D = event_deficit(run)
+        is_main = mainshock_mask(run, m_mainshock) & (run["time"] >= run.get("t_min", 0.0))
+        D_main.append(D[is_main])
+        M_main.append(run["magnitude"][is_main])
+        D_all.append(D)
+        M_all.append(run["magnitude"])
+        if run["moment_deficit"] is not None:
+            pool.append(run["moment_deficit"] / run["L_tot"])
+    D_main, M_main = np.concatenate(D_main), np.concatenate(M_main)
+    out = {"rho_main": spearman(D_main, M_main),
+           "rho_all": spearman(np.concatenate(D_all), np.concatenate(M_all)),
+           "percentile": np.nan, "n_percentile": 0}
+    d = D_main[np.isfinite(D_main)]
+    if pool and d.size:
+        pool = np.sort(np.concatenate(pool))
+        pct = 0.5 * (np.searchsorted(pool, d, side="left") + np.searchsorted(pool, d, side="right")) / pool.size
+        out["percentile"], out["n_percentile"] = float(pct.mean()), int(d.size)
+    return out
+
+
+def recurrence_stats(runs, m_mainshock, m_large=7.3, horizon_years=30.0):
+    """Mainshock interval mean/CV pooled over runs; P(an M >= m_mainshock at lags 1..horizon after
+    an M >= m_large event), counting only M >= m_large events with the full horizon in the catalog."""
+    intervals, hits, eligible = [], 0, 0
+    for run in runs:
+        dt_grid, n_steps = run["dt_grid"], run["n_steps"]
+        k_main = np.sort(mainshock_steps(run, m_mainshock))
+        intervals.append(np.diff(k_main) * dt_grid)
+        n_h = int(round(horizon_years / dt_grid))
+        big = (key_magnitude(run) >= m_large) & (run["time"] >= run.get("t_min", 0.0))
+        for kb in run["step_index"][big]:
+            if kb + n_h > n_steps - 1:
+                continue
+            eligible += 1
+            hits += int(np.any((k_main > kb) & (k_main <= kb + n_h)))
+    iv = np.concatenate(intervals) if intervals else np.array([])
+    return {"mean": float(iv.mean()) if iv.size else np.nan,
+            "cv": float(iv.std() / iv.mean()) if iv.size > 1 and iv.mean() > 0 else np.nan,
+            "n": int(iv.size), "p_follow": hits / eligible if eligible else np.nan,
+            "n_large": eligible, "m_large": m_large, "horizon": horizon_years}
+
+
+def window_obs(st, lo_yr, hi_yr):
+    """Observed target count summed over the stack bins with lo_yr <= center < hi_yr."""
+    sel = (st["centers"] >= lo_yr) & (st["centers"] < hi_yr)
+    return int(st["obs"][:, sel].sum()) if st["obs"].shape[0] else 0
+
+
+def band_ratios(runs, m_mainshock, window, n_boot, rng, bands=BANDS):
+    """R_pre[-10,-1], R_post[1,10], R_post[11,30] for magnitude bands [lo, hi), each normalized by
+    its own long-term rate (unit-width lag bins, so the windows are exact for any --bin)."""
+    dt_grid = runs[0]["dt_grid"]
+    W = max(window, 30)
+    out = {}
+    for lo, hi in bands:
+        st = stack_counts(runs, m_mainshock, lo, W, 1, None, m_target_hi=hi)
+        res = {}
+        for name, (a, b) in (("pre10", (-10, -1)), ("post1_10", (1, 10)), ("post11_30", (11, 30))):
+            res[name] = window_ratio(st["obs"], st["exp"], st["centers"],
+                                     a * dt_grid, (b + 1) * dt_grid, n_boot, rng)
+            res["n_" + name] = window_obs(st, a * dt_grid, (b + 1) * dt_grid)
+        res["n_targets"] = sum(
+            int(((run["magnitude"] >= lo) & (run["magnitude"] < hi)
+                 & ~mainshock_mask(run, m_mainshock) & origin_mask(run)).sum()) for run in runs)
+        out[(lo, hi)] = res
+    return out
+
+
+def stack_step_field(runs, field, m_mainshock, lo, hi, norm_key=None):
+    """Mean of a per-step field at lags lo..hi around mainshocks, pooled over (mainshock, lag)
+    pairs, and its mean over runs; the field is divided by run[norm_key] when given."""
+    lags = np.arange(lo, hi + 1)
+    tot, cnt, run_means = 0.0, 0, []
+    for run in runs:
+        f = run.get(field)
+        if f is None or not np.isfinite(f).any():
+            continue
+        f = f / run[norm_key] if norm_key else f
+        run_means.append(np.nanmean(f))
+        for k in mainshock_steps(run, m_mainshock):
+            idx = k + lags
+            v = f[idx[(idx >= 0) & (idx < f.size)]]
+            v = v[np.isfinite(v)]
+            tot += v.sum()
+            cnt += v.size
+    return (tot / cnt if cnt else np.nan), (float(np.mean(run_means)) if run_means else np.nan)
+
+
+def origin_counts(runs, m_mainshock, m_target):
+    """Loading- vs Omori-origin counts of targets in [-10,-1] and [1,10], and over the catalog."""
+    out = {"pre": np.zeros(2, int), "post": np.zeros(2, int), "all": np.zeros(2, int)}
+    for run in runs:
+        if not run["has_origin"]:
+            continue
+        m, k, o = run["magnitude"], run["step_index"], run["origin"]
+        tgt = (m >= m_target) & ~mainshock_mask(run, m_mainshock)
+        for j in (0, 1):
+            out["all"][j] += ((o == j) & tgt).sum()
+        for km in mainshock_steps(run, m_mainshock):
+            lag = k - km
+            pre = (lag >= -10) & (lag <= -1) & tgt
+            post = (lag >= 1) & (lag <= 10) & tgt
+            for j in (0, 1):
+                out["pre"][j] += ((o == j) & pre).sum()
+                out["post"][j] += ((o == j) & post).sum()
+    return out
+
+
+def anchor_counts(run, i_star, m_levels, lags):
+    """Raw M >= m counts (any origin, the anchor itself at lag 0 excluded) around event i_star."""
+    lag = run["step_index"] - run["step_index"][i_star]
+    return {(m, w): int(((lag >= w[0]) & (lag <= w[1]) & (run["magnitude"] >= m)).sum())
+            for m in m_levels for w in lags}
+
+
+def lollipop_counts(runs, m_levels=(5.0, 6.0), window_years=1000.0, position=0.35, lags=LOLLIPOP_LAGS):
+    """Raw counts around the largest event of each run (see the module docstring), averaged over
+    runs, plus the anchor event and display window of every run."""
+    acc, anchors = {}, []
+    for run in runs:
+        if run["magnitude"].size == 0:
+            continue
+        i_star = int(np.argmax(run["magnitude"]))
+        t_star = float(run["time"][i_star])
+        t0 = min(max(t_star - position * window_years, 0.0), max(run["duration"] - window_years, 0.0))
+        anchors.append((run["name"], t_star, float(run["magnitude"][i_star]), t0, t0 + window_years))
+        for key, n in anchor_counts(run, i_star, m_levels, lags).items():
+            acc.setdefault(key, []).append(n)
+    return {key: float(np.mean(v)) for key, v in acc.items()}, anchors
+
+
+def block_largest_counts(runs, m_levels=(5.0, 6.0), block_years=1000.0, lags=LOLLIPOP_LAGS):
+    """The same counts around the largest event of every block_years block of each run (mean over
+    blocks). Blocks tile the run from t = 0 as in plot_lollipop.py: floor(duration / block_years)
+    blocks, the last one extending to the end of the catalog; a run shorter than block_years is one
+    block."""
+    acc, n_blocks = {}, 0
+    for run in runs:
+        t, T = run["time"], run["duration"]
+        n_blk = max(1, int(np.floor(T / block_years + 1e-9)))
+        width = block_years if T >= block_years else T
+        for b in range(n_blk):
+            lo = b * width
+            idx = np.flatnonzero((t >= lo) & ((t < lo + width) if b < n_blk - 1 else True))
+            if idx.size == 0:
+                continue
+            n_blocks += 1
+            i_star = int(idx[np.argmax(run["magnitude"][idx])])
+            for key, n in anchor_counts(run, i_star, m_levels, lags).items():
+                acc.setdefault(key, []).append(n)
+    return {key: float(np.mean(v)) for key, v in acc.items()}, n_blocks
+
+
+def deficit_ratio_stats(runs, m_mainshock, m_nom_min=6.5):
+    """Mean D_eff/D_w at loading-origin draws in [-10,-1] and [1,10], over all targets and at the
+    mainshock draws; Spearman rho(D_eff/D_w, M_nom) for loading draws with M_nom >= m_nom_min."""
+    if not any(np.isfinite(run["deficit_ratio"]).any() for run in runs):
+        return None
+    vals = {"pre": [], "post": [], "targets": [], "mainshocks": []}
+    dr_hi, mn_hi = [], []
+    for run in runs:
+        dr, k = run["deficit_ratio"], run["step_index"]
+        loading = origin_mask(run, "loading") & np.isfinite(dr)
+        is_main = mainshock_mask(run, m_mainshock)
+        tgt = loading & ~is_main
+        vals["targets"].append(dr[tgt])
+        vals["mainshocks"].append(dr[loading & is_main & (run["time"] >= run.get("t_min", 0.0))])
+        for km in mainshock_steps(run, m_mainshock):
+            lag = k - km
+            vals["pre"].append(dr[(lag >= -10) & (lag <= -1) & tgt])
+            vals["post"].append(dr[(lag >= 1) & (lag <= 10) & tgt])
+        sel = loading & (run["m_nom"] >= m_nom_min)
+        dr_hi.append(dr[sel])
+        mn_hi.append(run["m_nom"][sel])
+    out = {}
+    for key, v in vals.items():
+        v = np.concatenate(v) if v else np.array([])
+        out[key] = (float(v.mean()) if v.size else np.nan, int(v.size))
+    out["rho"] = spearman(np.concatenate(dr_hi), np.concatenate(mn_hi))
+    out["m_nom_min"] = m_nom_min
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -476,6 +785,30 @@ def analyze(runs, args, rng):
         "nu": float(getattr(runs[0]["cfg"], "deficit_exponent", 1.0)),
         "rate_mode": getattr(runs[0]["cfg"], "rate_mode", "legacy"),
     }
+
+    # Summary-only diagnostics; own bootstrap stream so the lines above are unchanged
+    rng_new = np.random.default_rng([args.seed, 1])
+    res["deficit"] = deficit_statistics(runs, args.m_mainshock)
+    res["recurrence"] = recurrence_stats(runs, args.m_mainshock)
+    res["bands"] = band_ratios(runs, args.m_mainshock, W, args.n_boot, rng_new)
+    res["tilt"] = None
+    if any(r["tilt_theta"] is not None and np.isfinite(r["tilt_theta"]).any() for r in runs):
+        th_pre, th_mean = stack_step_field(runs, "tilt_theta", args.m_mainshock, -10, -1)
+        th_post, _ = stack_step_field(runs, "tilt_theta", args.m_mainshock, 1, 10)
+        em_pre, em_mean = stack_step_field(runs, "expected_moment", args.m_mainshock, -10, -1, "E_gr")
+        em_post, _ = stack_step_field(runs, "expected_moment", args.m_mainshock, 1, 10, "E_gr")
+        res["tilt"] = {"theta": (th_pre, th_post, th_mean), "Em": (em_pre, em_post, em_mean)}
+    res["has_origin"] = any(r["has_origin"] for r in runs)
+    res["origin_sel"] = getattr(args, "origin", "all")
+    if res["has_origin"]:
+        res["origin_counts"] = origin_counts(runs, args.m_mainshock, m0)
+        res["ordering_loading"] = {
+            m: (res["ordering"][m] if res["origin_sel"] == "loading"
+                else magnitude_ordering(runs, args.m_mainshock, m, m0, args.n_boot, rng_new, origin="loading"))
+            for m in m_targets[1:]}
+    res["lollipop"], res["lollipop_anchors"] = lollipop_counts(runs)
+    res["block_largest"], res["n_blocks"] = block_largest_counts(runs)
+    res["deficit_ratio"] = deficit_ratio_stats(runs, args.m_mainshock)
     return res
 
 
@@ -532,6 +865,57 @@ def summarize(label, res, args):
                     parts.append(f"[{lo},{hi}]={r[0]:.2f}")
             if parts:
                 lines.append(f"      R_post windows: " + ", ".join(parts))
+
+    # Summary-only diagnostics (see module docstring)
+    def _rho(r):
+        return f"{r[0]:+.3f} +/- {r[1]:.3f} (n={r[2]})" if np.isfinite(r[0]) else f"nan (n={r[2]})"
+    mm = args.m_mainshock
+    dfc = res["deficit"]
+    lines.append(f"  Spearman rho(D_pre, M | M>={mm:g}): {_rho(dfc['rho_main'])}; "
+                 f"all events: {_rho(dfc['rho_all'])}; "
+                 f"D_pre percentile at mainshock times: {dfc['percentile']:.2f} (n={dfc['n_percentile']})")
+    rc = res["recurrence"]
+    lines.append(f"  M>={mm:g} recurrence: mean {rc['mean']:.1f} yr, CV {rc['cv']:.2f} (n={rc['n']} intervals); "
+                 f"P(M>={mm:g} within {rc['horizon']:g} yr after M>={rc['m_large']:g}) = {rc['p_follow']:.2f} "
+                 f"(n={rc['n_large']})")
+    lines.append("  band ratios (own long-term rate): R_pre[-10,-1] / R_post[1,10] / R_post[11,30] [n_obs]")
+    for (lo, hi), b in res["bands"].items():
+        lines.append(f"    M in [{lo:g},{hi:g}): " + " / ".join(
+            f"{b[key][0]:.2f} ({b[key][1]:.2f}-{b[key][2]:.2f}) [{b['n_' + key]}]"
+            for key in ("pre10", "post1_10", "post11_30")) + f"; targets {b['n_targets']}")
+    if res["tilt"] is not None:
+        th, em = res["tilt"]["theta"], res["tilt"]["Em"]
+        lines.append(f"  tilt: stacked theta [-10,-1]={th[0]:.3f}, [1,10]={th[1]:.3f} (run mean {th[2]:.3f}); "
+                     f"E[m]/E_GR [-10,-1]={em[0]:.3f}, [1,10]={em[1]:.3f} (run mean {em[2]:.3f})")
+    if res["has_origin"]:
+        oc = res["origin_counts"]
+        def _share(v):
+            return v[1] / v.sum() if v.sum() else np.nan
+        lines.append(f"  origin of M>={m_t[0]:g} targets: [-10,-1] loading {oc['pre'][0]}, Omori {oc['pre'][1]} "
+                     f"(Omori share {_share(oc['pre']):.2f}); [1,10] loading {oc['post'][0]}, Omori {oc['post'][1]} "
+                     f"({_share(oc['post']):.2f}); catalog {oc['all'][0]}, {oc['all'][1]} ({_share(oc['all']):.2f})")
+        for m, od in res["ordering_loading"].items():
+            lines.append(f"  ordering share(M>={m:g} | M>={m_t[0]:g}) [loading-origin targets]: "
+                         f"pre[-10,-1]={od['pre']:.3f} ({od['n_pre_hi']}/{od['n_pre_lo']}), "
+                         f"post[11,30]={od['post']:.3f}, global={od['global']:.3f}; "
+                         f"pre/global={od['pre_over_global']:.2f} ({od['lo']:.2f}-{od['hi']:.2f})")
+    if res["origin_sel"] != "all":
+        lines.append(f"  target origin filter: {res['origin_sel']}"
+                     + ("" if res["has_origin"] else " (no origin field: every event is loading-origin)"))
+    lp, bl = res["lollipop"], res["block_largest"]
+    def _counts(d, m):
+        return (f"[-10,-1]/[1,10] = {d.get((m, (-10, -1)), np.nan):.1f}/{d.get((m, (1, 10)), np.nan):.1f}, "
+                f"[-50,-1]/[1,50] = {d.get((m, (-50, -1)), np.nan):.1f}/{d.get((m, (1, 50)), np.nan):.1f}")
+    lines.append(f"  lollipop (largest event per run, 1000-yr window at 35%): M>=5 {_counts(lp, 5.0)}; M>=6 {_counts(lp, 6.0)}")
+    lines.append("    anchors: " + "; ".join(f"{a[0][-10:]} M{a[2]:.2f} at {a[1]:.0f} yr (window {a[3]:.0f}-{a[4]:.0f})"
+                                             for a in res["lollipop_anchors"]))
+    lines.append(f"  largest event per 1000-yr block ({res['n_blocks']} blocks): M>=5 {_counts(bl, 5.0)}; M>=6 {_counts(bl, 6.0)}")
+    dr = res["deficit_ratio"]
+    if dr is not None:
+        lines.append(f"  deficit ratio D_eff/D_w at loading draws: pre[-10,-1]={dr['pre'][0]:.3f} (n={dr['pre'][1]}), "
+                     f"post[1,10]={dr['post'][0]:.3f} (n={dr['post'][1]}), all targets={dr['targets'][0]:.3f}, "
+                     f"at M>={mm:g} draws={dr['mainshocks'][0]:.3f} (n={dr['mainshocks'][1]})")
+        lines.append(f"  Spearman rho(D_eff/D_w, M_nom | loading, M_nom>={dr['m_nom_min']:g}): {_rho(dr['rho'])}")
     return "\n".join(lines)
 
 
@@ -625,6 +1009,9 @@ def main():
                         help="Stack on actual mainshock magnitudes or on nominal-draw times")
     parser.add_argument("--d_floor", type=float, default=134.0,
                         help="Reservoir level (yr of loading) below which M7.5 capacity binds")
+    parser.add_argument("--origin", choices=["all", "loading", "omori"], default="all",
+                        help="Restrict targets (not mainshocks) by events['origin']; "
+                             "files without the field are all loading-origin")
     parser.add_argument("--output", default=None,
                         help="Figure path (default <first input_dir>/foreshocks.png)")
     args = parser.parse_args()
@@ -638,6 +1025,7 @@ def main():
         for r in runs:
             r["t_min"] = args.t_min
             r["key"] = args.key
+            r["origin_sel"] = args.origin
         res = analyze(runs, args, rng)
         label = Path(d).name
         results.append(res)

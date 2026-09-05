@@ -14,6 +14,19 @@ Prescribed parameters (b_value, M_min, M_max, omori_*) are read from the
 first run's HDF5 config group (files written before full config persistence
 fall back to the live Config class for class-level attributes).
 
+The rate history and its grid come from the per-step 'step/' group when it
+exists (lambda_total on the simulation timestep, so the Omori stack resolves
+every lag even when snapshots are sparse); older files fall back to the
+snapshot-grid 'times' / 'lambda_history'.
+
+When the run used the deficit-tilted magnitude law (magnitude_tilt_mu != 0,
+see magnitude_law.py) panel (a) also shows the prescribed law averaged over
+the stored per-step tilt history, weighted by the expected event count of
+each step (dashed, 'prescribed, time-averaged'); its Aki b-value on the
+magnitude grid is reported in the caption. --origin loading restricts the
+recovered catalog to loading-origin events (events['origin'] == 0) when the
+Bath-split origin field exists.
+
 Outputs:
     gr_omori.png                  Two-panel comparison figure (500 dpi)
     gr_omori_caption.txt          Figure caption with computed numbers
@@ -23,15 +36,18 @@ Outputs:
 Usage:
     python plot_gr_omori.py [--input_dir results/ensemble] [--output PATH]
                             [--m_threshold 6.0] [--classic_gr]
+                            [--origin all|loading]
 
 Defaults:
     input_dir   = results/ensemble
     output      = <input_dir>/gr_omori.png (gr_omori_classic.png with
                   --classic_gr)
     m_threshold = 6.0
+    origin      = all
 """
 
 import argparse
+import warnings
 from pathlib import Path
 
 import h5py
@@ -40,13 +56,21 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 from hdf5_io import read_config
+from magnitude_law import TiltedGR
 from temporal_prob import omori_step_rate
 
 FONTSIZE = 8
 
 
-def load_ensemble_events(input_dir):
-    """Load event times/magnitudes and the snapshot grid step per run."""
+def load_ensemble_events(input_dir, origin="all"):
+    """Load event times/magnitudes and the rate history (with its grid step) per run.
+
+    The rate comes from 'step/lambda_total' on the per-step grid 'step/times'
+    when the group exists, else from the snapshot-grid 'lambda_history'.
+    origin='loading' keeps only loading-origin events when events['origin']
+    exists (Bath split); the per-step tilt history (tilt_theta,
+    expected_count) is carried along for the time-averaged prescribed law.
+    """
     files = sorted(Path(input_dir).glob("ensemble_run_*.h5"))
     if not files:
         raise SystemExit(f"No ensemble_run_*.h5 files found in {input_dir}")
@@ -60,13 +84,31 @@ def load_ensemble_events(input_dir):
             if cfg is None:
                 cfg = read_config(h5)
             events = h5["events"][...]
-            times = h5["times"][:2]
+            n_total = int(events.size)
+            has_origin = "origin" in events.dtype.names
+            if origin == "loading" and has_origin:
+                events = events[events["origin"] == 0]
+            theta = weight = None
+            if "step" in h5:
+                st = h5["step"]
+                times = st["times"][:2]
+                lam = st["lambda_total"][:]
+                if "tilt_theta" in st:
+                    theta = st["tilt_theta"][:]
+                    weight = st["expected_count"][:]
+            else:
+                times = h5["times"][:2]
+                lam = h5["lambda_history"][:]
             runs.append(
                 {
                     "name": f.stem,
                     "time": events["time"].copy(),
                     "magnitude": events["magnitude"].copy(),
-                    "lam": h5["lambda_history"][:],
+                    "lam": lam,
+                    "theta": theta,
+                    "weight": weight,
+                    "n_total": n_total,
+                    "has_origin": has_origin,
                 }
             )
             duration = float(h5["config"].attrs["duration_years"])
@@ -85,11 +127,8 @@ def classic_gr_survival(m, b, M_min):
     return 10 ** (-b * (m - M_min))
 
 
-def fit_gr_b(mags, M_min, M_max):
-    """Maximum-likelihood b-value for the doubly truncated G-R law."""
-    m = mags[mags >= M_min] - M_min
-    dR = M_max - M_min
-    target = m.mean()
+def _truncated_b_from_mean(target, dR):
+    """b of the doubly truncated G-R law whose mean excess magnitude is target."""
     lo, hi = 0.1, 5.0
     for _ in range(80):
         b = 0.5 * (lo + hi)
@@ -100,6 +139,59 @@ def fit_gr_b(mags, M_min, M_max):
         else:
             hi = b
     return 0.5 * (lo + hi)
+
+
+def fit_gr_b(mags, M_min, M_max):
+    """Maximum-likelihood b-value for the doubly truncated G-R law."""
+    m = mags[mags >= M_min] - M_min
+    return _truncated_b_from_mean(m.mean(), M_max - M_min)
+
+
+def compute_tilted_marginal(runs, cfg):
+    """Time average of the prescribed deficit-tilted law (magnitude_law.TiltedGR).
+
+    The per-step tilt multipliers theta(t) ('step/tilt_theta') are pooled
+    over runs and averaged with weight lambda(t) dt ('step/expected_count'),
+    giving the magnitude distribution the loading-origin draws follow over
+    the whole ensemble; returned as the survival function N(>= M)/N on the
+    law's magnitude grid together with its Aki and doubly truncated
+    maximum-likelihood b-values. None when the tilt is off (mu = 0) or no
+    per-step tilt history is stored.
+    """
+    if float(getattr(cfg, "magnitude_tilt_mu", 0.0)) == 0.0:
+        return None
+    with_theta = [r for r in runs if r["theta"] is not None]
+    if not with_theta:
+        return None
+    theta = np.concatenate([r["theta"] for r in with_theta])
+    weight = np.concatenate([r["weight"] for r in with_theta])
+    ok = np.isfinite(theta) & np.isfinite(weight)
+    if not ok.any() or weight[ok].sum() <= 0:
+        return None
+    if not hasattr(cfg, "element_area_m2"):
+        cfg.compute_derived_parameters()
+    D_ref = getattr(cfg, "deficit_reference", None)
+    if D_ref is None:
+        D_ref = float(cfg.deficit_reference_years) * float(cfg.geom_loading_rate_total)
+    law = TiltedGR(cfg, D_ref)
+    M, p = law.marginal(theta[ok], weight[ok])
+    # Survival function by cumulative trapezoid from the top of the grid
+    inc = 0.5 * (p[1:] + p[:-1]) * law.dM
+    surv = np.empty_like(p)
+    surv[-1] = 0.0
+    surv[:-1] = np.cumsum(inc[::-1])[::-1]
+    surv /= surv[0]
+    mass = np.trapezoid(p, dx=law.dM)
+    mean_M = np.trapezoid(M * p, dx=law.dM) / mass
+    return {
+        "grid": M,
+        "surv": surv,
+        "b_aki": np.log10(np.e) / (mean_M - law.M_min),
+        "b_trunc": _truncated_b_from_mean(mean_M - law.M_min, law.M_max - law.M_min),
+        "theta_mean": float(np.sum(theta[ok] * weight[ok]) / weight[ok].sum()),
+        "n_steps": int(ok.sum()),
+        "law": law,
+    }
 
 
 def compute_gr(runs, cfg, mag_grid):
@@ -150,10 +242,15 @@ def compute_omori_stack(runs, dt_grid, cfg, m_threshold):
         idx = idx_ms[:, None] + np.arange(1, k_max + 1)[None, :]
         for j in range(k_max):
             valid = idx[:, j][idx[:, j] < run["lam"].size]
-            lam_stacks[i, j] = run["lam"][valid].mean()
+            lam_stacks[i, j] = run["lam"][valid].mean() if valid.size else np.nan
 
-    K_mean = np.concatenate(K_mainshocks).mean()
-    lam_mean = lam_stacks.mean(axis=0)
+    K_all = np.concatenate(K_mainshocks)
+    K_mean = K_all.mean() if K_all.size else np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN lags (no mainshocks)
+        lam_mean = np.nanmean(lam_stacks, axis=0)
+        lam_lo = np.nanmin(lam_stacks, axis=0)
+        lam_hi = np.nanmax(lam_stacks, axis=0)
 
     # Prescribed kernel on the grid in the run's own Omori mode (legacy point
     # sample or step-integrated), using the simulation timestep
@@ -192,15 +289,23 @@ def compute_omori_stack(runs, dt_grid, cfg, m_threshold):
     def omori_model(t, K, p, B):
         return B + K / (t + c0) ** p
 
-    (K_fit, p_fit, B_fit), _ = curve_fit(
-        omori_model, centers, lam_mean, p0=[0.3, 1.0, 0.6],
-        bounds=([0.0, 0.1, 0.0], [10.0, 3.0, 5.0]),
-    )
+    fit_ok = np.isfinite(lam_mean)
+    if fit_ok.sum() >= 3:
+        try:
+            (K_fit, p_fit, B_fit), _ = curve_fit(
+                omori_model, centers[fit_ok], lam_mean[fit_ok], p0=[0.3, 1.0, 0.6],
+                bounds=([0.0, 0.1, 0.0], [10.0, 3.0, 5.0]),
+            )
+        except (RuntimeError, ValueError):
+            K_fit = p_fit = B_fit = np.nan
+    else:
+        # Too few mainshocks (short smoke runs): no fit
+        K_fit = p_fit = B_fit = np.nan
     return {
         "centers": centers,
         "lam_mean": lam_mean,
-        "lam_lo": lam_stacks.min(axis=0),
-        "lam_hi": lam_stacks.max(axis=0),
+        "lam_lo": lam_lo,
+        "lam_hi": lam_hi,
         "baseline": baseline,
         "t_smooth": t_smooth,
         "prescribed_smooth": prescribed_smooth,
@@ -214,7 +319,21 @@ def compute_omori_stack(runs, dt_grid, cfg, m_threshold):
     }
 
 
-def make_figure(gr, om, cfg, output, classic_gr=False):
+def _nice_limits(vmin, vmax, n_intervals=3):
+    """Round axis limits and ticks (about n_intervals steps) enclosing [vmin, vmax]."""
+    span = max(vmax - vmin, 1e-6)
+    raw = span / n_intervals
+    mag = 10 ** np.floor(np.log10(raw))
+    step = min((s for s in (1, 2, 2.5, 5, 10) if s * mag >= raw), default=10) * mag
+    lo = np.floor(vmin / step) * step
+    hi = np.ceil(vmax / step) * step
+    if hi <= lo:
+        hi = lo + step
+    ticks = np.arange(lo, hi + 0.5 * step, step)
+    return float(lo), float(hi), [float(t) for t in ticks]
+
+
+def make_figure(gr, om, cfg, output, classic_gr=False, tilt=None):
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(8, 4))
     cool = "#1f77b4"
     warm = "#ff7f0e"
@@ -245,6 +364,9 @@ def make_figure(gr, om, cfg, output, classic_gr=False):
               label=f"best fit ($b$ = {b_fit_label:.2f})")
     ax_a.plot(m_dense, prescribed_line, "-", color=warm, linewidth=1.0,
               label=f"prescribed G-R ($b$ = {cfg.b_value:.2f})")
+    if tilt is not None:
+        ax_a.plot(tilt["grid"], np.maximum(tilt["surv"], floor), "--", color=warm,
+                  linewidth=1.0, label="prescribed, time-averaged")
     ax_a.set_yscale("log")
     ax_a.set_xlim(5.0, 8.0)
     ax_a.set_ylim(floor, 1.0)
@@ -270,12 +392,18 @@ def make_figure(gr, om, cfg, output, classic_gr=False):
               linewidth=1.0, label=f"prescribed ($p$ = {cfg.omori_p:.2f})")
     ax_b.set_xscale("log")
     ax_b.set_xlim(1.0, 20.0)
-    ax_b.set_ylim(0.3, 1.2)
     ax_b.set_xticks([1, 3, 10, 20])
     ax_b.set_xticklabels(["1", "3", "10", "20"])
-    ax_b.set_yticks([0.3, 0.6, 0.9, 1.2])
+    # Round y-limits enclosing the stack and the prescribed curve
+    shown = om["centers"] <= 20.0
+    y_all = np.concatenate([om["lam_lo"][shown], om["lam_hi"][shown],
+                            np.asarray(om["prescribed_smooth"])[np.asarray(om["t_smooth"]) <= 20.0]])
+    y_all = y_all[np.isfinite(y_all)]
+    y_lo, y_hi, y_ticks = _nice_limits(y_all.min(), y_all.max()) if y_all.size else (0.3, 1.2, [0.3, 0.6, 0.9, 1.2])
+    ax_b.set_ylim(y_lo, y_hi)
+    ax_b.set_yticks(y_ticks)
     ax_b.set_xlabel("$t$ (years)", fontsize=FONTSIZE)
-    ax_b.set_ylabel("normalized events per year", fontsize=FONTSIZE)
+    ax_b.set_ylabel("events per year", fontsize=FONTSIZE)
     ax_b.legend(loc="lower left", fontsize=FONTSIZE - 2, frameon=False)
 
     for ax, letter in [(ax_a, "a"), (ax_b, "b")]:
@@ -290,8 +418,34 @@ def make_figure(gr, om, cfg, output, classic_gr=False):
     return fig
 
 
+def tilt_caption(tilt, cfg, origin="all"):
+    """Caption sentence for the time-averaged prescribed tilted law."""
+    if tilt is None:
+        return ""
+    law = tilt["law"]
+    text = (
+        "The dashed orange curve is the prescribed deficit-tilted law "
+        f"(magnitude_law.TiltedGR: shape {law.shape}, target {law.target}, "
+        f"mu = {law.mu:g}, D_w = {law.D_w / law.D_ref:.2f} D_ref) averaged over "
+        "the stored per-step tilt multipliers theta(t) weighted by the expected "
+        f"event count lambda(t) dt of each step (pooled over {tilt['n_steps']} "
+        f"steps; mean theta = {tilt['theta_mean']:.3f}), i.e. the time-averaged "
+        "magnitude distribution the loading-origin draws follow; its Aki "
+        f"b-value on the magnitude grid is b = {tilt['b_aki']:.3f} (doubly "
+        f"truncated maximum-likelihood b = {tilt['b_trunc']:.3f}). "
+    )
+    if getattr(cfg, "omori_split_enabled", False):
+        text += (
+            "Omori-origin events draw from the plain G-R law capped at "
+            f"M_parent - {cfg.omori_bath_dM:g} (Bath split)"
+            + (", which the overlay does not include. " if origin == "all"
+               else " and are excluded from the recovered catalog here. ")
+        )
+    return text
+
+
 def build_caption(gr, om, cfg, m_threshold, n_runs, duration, dt_grid,
-                  classic=False):
+                  classic=False, tilt=None, origin="all"):
     c_days = cfg.omori_c_years * 365.25
     pooled_rate = gr["n_pooled"] / (n_runs * duration)
     return (
@@ -327,6 +481,12 @@ def build_caption(gr, om, cfg, m_threshold, n_runs, duration, dt_grid,
             "the upper truncation. Catalog magnitudes are recomputed from "
             "the moment actually released, so where accumulated moment is "
             "scarce the largest magnitudes deplete before M_max. "
+        )
+        + tilt_caption(tilt, cfg, origin)
+        + (
+            "Only loading-origin events (events['origin'] == 0) enter the "
+            "recovered catalog. "
+            if origin == "loading" else ""
         )
         +
         "(b) Superposed-epoch aftershock rate: the model event rate "
@@ -370,19 +530,34 @@ def main():
                         help="Mainshock magnitude threshold for the Omori stack")
     parser.add_argument("--classic_gr", action="store_true",
                         help="Plot classic (untruncated) G-R lines in panel (a)")
+    parser.add_argument("--origin", choices=["all", "loading"], default="all",
+                        help="Recovered catalog: all events or loading-origin only "
+                             "(needs events['origin'], Bath split)")
     args = parser.parse_args()
 
     default_name = "gr_omori_classic.png" if args.classic_gr else "gr_omori.png"
     output = Path(args.output) if args.output else Path(args.input_dir) / default_name
-    runs, duration, dt_grid, cfg = load_ensemble_events(args.input_dir)
+    runs, duration, dt_grid, cfg = load_ensemble_events(args.input_dir, args.origin)
     mag_grid = np.arange(4.8, 8.0 + 1e-9, 0.02)
     gr = compute_gr(runs, cfg, mag_grid)
     om = compute_omori_stack(runs, dt_grid, cfg, args.m_threshold)
+    tilt = compute_tilted_marginal(runs, cfg)
 
-    print(f"Runs: {len(runs)}, duration {duration:.0f} yr, grid dt {dt_grid:.4f} yr")
-    print(f"Pooled events: {gr['n_pooled']} ({gr['n_below_mmin']} below M_min)")
+    print(f"Runs: {len(runs)}, duration {duration:.0f} yr, grid dt {dt_grid:.4f} yr "
+          f"({runs[0]['lam'].size} rate samples per run)")
+    n_total = sum(r["n_total"] for r in runs)
+    print(f"Pooled events: {gr['n_pooled']} ({gr['n_below_mmin']} below M_min)"
+          + (f"; origin = {args.origin}: {gr['n_pooled']} of {n_total} events kept"
+             if args.origin != "all" else ""))
+    if args.origin == "loading" and not any(r["has_origin"] for r in runs):
+        print("  (no events['origin'] field: all events kept)")
     print(f"G-R fit: b = {gr['b_fit']:.3f} truncated, "
           f"{gr['b_fit_classic']:.3f} classic (prescribed {cfg.b_value:g})")
+    if tilt is not None:
+        print(f"Prescribed time-averaged tilted law: b(Aki) = {tilt['b_aki']:.3f}, "
+              f"b(truncated ML) = {tilt['b_trunc']:.3f}; mean theta = {tilt['theta_mean']:.3f} "
+              f"over {tilt['n_steps']} steps (mu = {tilt['law'].mu:g}, shape = {tilt['law'].shape}, "
+              f"target = {tilt['law'].target})")
     print(f"Mainshocks M>={args.m_threshold:g}: {om['n_mainshocks']}")
     print(f"Omori fit: K = {om['K_fit']:.3f} /yr, p = {om['p_fit']:.3f}, "
           f"B = {om['B_fit']:.3f} /yr "
@@ -390,10 +565,11 @@ def main():
           f"baseline = {om['baseline']:.3f}); "
           f"branching ratio n: {om['n_branch']:.3f}")
 
-    make_figure(gr, om, cfg, output, classic_gr=args.classic_gr)
+    make_figure(gr, om, cfg, output, classic_gr=args.classic_gr, tilt=tilt)
 
     caption = build_caption(gr, om, cfg, args.m_threshold, len(runs),
-                            duration, dt_grid, classic=args.classic_gr)
+                            duration, dt_grid, classic=args.classic_gr,
+                            tilt=tilt, origin=args.origin)
     caption_path = output.with_name(output.stem + "_caption.txt")
     caption_path.write_text(caption + "\n")
     print(f"Saved: {caption_path}")

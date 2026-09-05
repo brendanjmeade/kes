@@ -157,6 +157,14 @@ def run_simulation(config):
         memory_h = None
     check_identity = getattr(config, "check_reservoir_identity", False)
 
+    # Deficit-weighted magnitude law and Bath split (built by
+    # calibrate_rate_to_reservoir; None / False = legacy, bit-identical paths)
+    law = getattr(config, "_magnitude_law", None)
+    tilt_on = law is not None and law.mu != 0.0
+    split_on = bool(getattr(config, "_omori_split", False))
+    legacy_draw = law is None
+    n_theta_clamped = 0
+
     # Track spatial cumulative release for visualization
     m_release_cumulative = np.zeros(config.n_elements)  # Cumulative slip released at each element
 
@@ -296,10 +304,17 @@ def run_simulation(config):
         if n_events > 0:
             m_working = m_current.copy()
 
-            # Compute spatial weights for aftershock localization (if enabled)
-            aftershock_spatial_weights, n_active_aftershock_seqs = compute_aftershock_spatial_weights(
-                event_history, current_time, config
-            )
+            # Compute spatial weights for aftershock localization (if enabled).
+            # Under the Bath split children nucleate on their parent's kernel
+            # and loading events carry no aftershock weighting.
+            if split_on:
+                aftershock_spatial_weights, n_active_aftershock_seqs = None, 0
+                omori_parents = components.get("omori_parents")
+                omori_rates = components.get("omori_rates")
+            else:
+                aftershock_spatial_weights, n_active_aftershock_seqs = compute_aftershock_spatial_weights(
+                    event_history, current_time, config
+                )
 
             # for j in range(n_events):
             #     # Draw magnitude from G-R distribution
@@ -366,19 +381,70 @@ def run_simulation(config):
                 time_offsets = np.zeros(n_events)
 
             for j in range(n_events):
-                # Draw magnitude from G-R distribution
-                magnitude = draw_magnitude(config)
+                origin, parent_idx = 0, -1
+                deficit_ratio = tilt_theta_used = size_logweight = np.nan
+                if legacy_draw:
+                    # Draw magnitude from G-R distribution
+                    magnitude = draw_magnitude(config)
 
-                # Compute spatial probability for this magnitude (with aftershock weighting)
-                nucleation_weights = aftershock_spatial_weights
-                if spatial_weighting:
-                    # Patches still in the stress shadow are less likely to nucleate
-                    if memory_on:
-                        nucleation_weights = aftershock_spatial_weights * memory_h
+                    # Compute spatial probability for this magnitude (with aftershock weighting)
+                    nucleation_weights = aftershock_spatial_weights
+                    if spatial_weighting:
+                        # Patches still in the stress shadow are less likely to nucleate
+                        if memory_on:
+                            nucleation_weights = aftershock_spatial_weights * memory_h
+                        else:
+                            nucleation_weights = aftershock_spatial_weights * saturation_weights(
+                                m_working, config
+                            )
+                else:
+                    # Stress-shadow nucleation weight (None = uniform)
+                    shadow_w = None
+                    if spatial_weighting:
+                        shadow_w = memory_h if memory_on else saturation_weights(m_working, config)
+                    if (
+                        split_on
+                        and omori_rates is not None
+                        and omori_rates.size > 0
+                        and lambda_t > 0.0
+                        and np.random.random() < components["aftershock"] / lambda_t
+                    ):
+                        # Omori child: parent in proportion to its step rate,
+                        # G-R capped at M_parent - dM, nucleation on Phi_parent
+                        k = int(np.random.choice(omori_rates.size, p=omori_rates / omori_rates.sum()))
+                        parent_idx = int(omori_parents[k])
+                        parent = event_history[parent_idx]
+                        origin = 1
+                        M_cap = min(config.M_max, parent["magnitude"] - config.omori_bath_dM)
+                        magnitude = law.draw(np.random.random(), None, M_cap, child=True)
+                        phi_parent = parent.get("spatial_activation")
+                        if phi_parent is not None:
+                            phi_parent = np.asarray(phi_parent, dtype=float)
+                            nucleation_weights = phi_parent if shadow_w is None else phi_parent * shadow_w
+                        else:
+                            nucleation_weights = shadow_w
                     else:
-                        nucleation_weights = aftershock_spatial_weights * saturation_weights(
-                            m_working, config
-                        )
+                        # Loading-origin event: deficit-weighted draw on the
+                        # within-step state (m_working is already decremented)
+                        if tilt_on:
+                            ell = law.log_deficit(m_working, memory_h if memory_on else None)
+                            D_now = None
+                            if law.cap_fill > 0:
+                                D_now = float(np.sum(m_working)) * config.element_area_m2
+                            tilt_theta_used = float(law.theta(ell))
+                            deficit_ratio = float(np.exp(ell))
+                            magnitude = law.draw(np.random.random(), ell, None, D_now)
+                            size_logweight = float(np.asarray(law.log_weight(magnitude, ell)).ravel()[0])
+                        else:
+                            # untilted loading law (same formula as draw_magnitude
+                            # when the loading floor / b are the catalog's)
+                            magnitude = law.draw(np.random.random())
+                        if split_on:
+                            nucleation_weights = shadow_w
+                        elif shadow_w is None:
+                            nucleation_weights = aftershock_spatial_weights
+                        else:
+                            nucleation_weights = aftershock_spatial_weights * shadow_w
                 p_spatial, gamma_used = spatial_probability(
                     m_working, magnitude, config, nucleation_weights
                 )
@@ -437,6 +503,11 @@ def run_simulation(config):
                     "gamma_used": gamma_used,
                     "lambda_t": lambda_t,
                     "components": components,
+                    "origin": origin,
+                    "parent_idx": parent_idx,
+                    "deficit_ratio": deficit_ratio,
+                    "tilt_theta": tilt_theta_used,
+                    "size_logweight": size_logweight,
                 }
 
                 event_history.append(event)
@@ -527,7 +598,12 @@ def run_simulation(config):
             reservoir=reservoir,
             saturation=components.get("saturation", np.nan),
             n_active_sequences=components["n_active_sequences"],
+            tilt_theta=components.get("tilt_theta", np.nan),
+            expected_moment=components.get("expected_moment", np.nan),
+            lambda_omori_eligible=components.get("lambda_omori_eligible", np.nan),
         )
+        if tilt_on and abs(components.get("tilt_theta", 0.0)) >= 0.999 * law.theta_max:
+            n_theta_clamped += 1
 
         # Save snapshots AFTER events and correction (captures full state)
         # Save at configured interval (default: every timestep)
@@ -546,6 +622,16 @@ def run_simulation(config):
             hdf5_writer.append(current_time, m_current, m_release_cumulative, debt_pre, lambda_t, afterslip_cumulative)
 
     h5file.attrs['n_null_events'] = n_null_events
+    if law is not None and len(event_history) > 0:
+        realized = float(np.mean([e["geom_moment"] for e in event_history]))
+        n_omori = sum(1 for e in event_history if e.get("origin", 0) == 1)
+        print(f"  Magnitude law: realized E[m] per event {realized:.3e} m^3 = "
+              f"{realized / config.expected_geom_moment_per_event:.3f} x calibrated E[m](D_ref)"
+              + (f"; theta clamped on {n_theta_clamped / max(config.n_time_steps, 1):.1%} of steps" if tilt_on else ""))
+        if split_on:
+            print(f"  Bath split: {n_omori} Omori-origin events ({n_omori / len(event_history):.3f} of the catalog)")
+        h5file.attrs['n_theta_clamped'] = n_theta_clamped
+        h5file.attrs['n_omori_origin'] = n_omori
     if memory_on:
         print(f"  Mean rate-state recovery <h>: {np.mean(memory_h):.3f} at end; "
               f"reference H_bar = {config.rate_state_reference:.3f}")

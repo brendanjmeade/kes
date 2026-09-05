@@ -226,6 +226,51 @@ class Config:
     # GR scaling
     b_value = 1.0
 
+    # Deficit-weighted magnitude law for loading-origin events (magnitude_law.py):
+    #   ln p(M | D) = ln p_GR(M) + theta(D) * phi(M), a moment-constrained MaxEnt
+    #   tilt of the truncated G-R law with theta(D_ref) = 0 (so the calibration
+    #   at D_ref is unchanged). mu = d ln E[m] / d ln D at D_ref; 0 = legacy
+    #   i.i.d. G-R with a bit-identical random stream.
+    magnitude_tilt_mu = 0.0
+    # phi(M): "moment" = (m/m_max)^p (Kagan tilt, acts on 10^(1.5 M): top-selective);
+    # "gamma" = gamma(M)/gamma(M_max) (joint MaxEnt over (i, M), concave, lifts
+    # M6-6.5 nearly as much as M7+); "linear" = (M - M_min)/(M_max - M_min) (b-value tilt)
+    magnitude_tilt_shape = "moment"
+    magnitude_tilt_power = 1.0  # p for the moment shape (2 = more top-selective)
+    # "loglinear": theta = mu ln(D/D_w) / c_phi (soft; default); "power": theta
+    # solved so E[m|D] = E_GR (D/D_w)^mu exactly (hard low-D taper)
+    magnitude_tilt_target = "loglinear"
+    # "reservoir": D = A sum(m_i) (global); "shadow": stress-shadow-weighted log
+    # effective deficit (needs rate_law = memory; ~10% extra local variance)
+    magnitude_tilt_deficit = "reservoir"
+    magnitude_tilt_pivot = 5.0  # tilt acts on max(phi(M) - phi(M_p), 0); M_min = off
+    magnitude_tilt_reference_years = 0.0  # neutral point D_w (yr of loading); 0 = deficit_reference_years
+    magnitude_tilt_theta_max = 200.0
+    magnitude_cap_fill_fraction = 0.0  # ex-ante cap m(M) <= this * D (0 = off; ~0.5 with M_max = 8)
+    magnitude_grid_n = 2001  # magnitude grid for the tabulated inverse CDF
+    # Loading-origin magnitude law floor / b-value (0 = the catalog M_min / b_value).
+    # With the Bath split, magnitude_load_M_min = 6 makes loading nucleate only
+    # M >= 6 events and leaves every smaller event to the aftershock cascade:
+    # moment balance then gives lambda_load = 0.8 L / E_GR[m; 6, 7.5] ~ 0.17/yr.
+    magnitude_load_M_min = 0.0
+    magnitude_load_b = 0.0
+    # Rate coupling to the size law: lambda_load *= (E_GR / E[m|D])^kappa with the
+    # ratio clamped to [1/R, R]. kappa = 0: lambda_0 fixed, the size feedback
+    # stiffens the reservoir loop (nu_eff = nu + mu); kappa = 1: instantaneous
+    # moment balance, count rate ~ D^(nu - mu) (fewer-but-bigger when full).
+    rate_size_coupling = 0.0
+    rate_size_coupling_max = 3.0
+    # Bath split (library version of experiment_bath_split.py): each event is
+    # loading-origin (deficit-weighted draw, nucleation ~ m^gamma h, no aftershock
+    # weighting) or the child of an Omori parent chosen in proportion to its
+    # step rate (G-R capped at M_parent - dM, nucleation ~ Phi_parent m^gamma h).
+    # Parents with M - dM < M_min produce no rate; the moment balance uses the
+    # cascade budget lambda = (1 - f_as) L / (E_L + n_L E_O / (1 - n_O)).
+    # False = legacy aggregated Omori path (bit-identical).
+    omori_split_enabled = False
+    omori_bath_dM = 1.2
+    omori_bath_K_scale = 1.0  # K multiplier for eligible parents (n_b/n_L ~ 2.64 restores the total branching ratio)
+
     # Time
     duration_years = 1000.0  # Full simulation duration
     time_step_years = 1.0  # Time resolution (years)
@@ -261,6 +306,16 @@ class Config:
 
         # Convert slip rates to m/year
         self.background_slip_rate_m_yr = self.background_slip_rate_mm_yr / 1000.0
+
+        # Guard the size-law / rate-coupling combination that runs away
+        # (instantaneous balance with a steep tilt: bursty release, corr pinned)
+        kappa = getattr(self, "rate_size_coupling", 0.0)
+        mu = getattr(self, "magnitude_tilt_mu", 0.0)
+        if kappa > 0.5 and mu > 3.0:
+            raise ValueError(
+                f"rate_size_coupling = {kappa} with magnitude_tilt_mu = {mu}: keep mu <= 3 "
+                "when kappa > 0.5 (reservoir runaway)"
+            )
 
         # Total moment accumulation rate (N-m/year)
         total_slip_rate = self.background_slip_rate_m_yr * self.n_elements

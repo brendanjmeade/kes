@@ -6,6 +6,7 @@ Adaptive rate formulation: Rate self-corrects to achieve moment balance
 
 import numpy as np
 from moment import magnitude_to_seismic_moment
+from magnitude_law import TiltedGR
 
 
 def compute_expected_moment_per_event(config):
@@ -58,7 +59,7 @@ def _gr_quadrature(config, n=1000):
     return M_array, dM, P_normalized
 
 
-def compute_expected_clipped_moment(config, reservoir_geom_moment):
+def compute_expected_clipped_moment(config, reservoir_geom_moment, quadrature=None):
     """
     Expected geometric moment per event when release is clipped to capacity
 
@@ -75,11 +76,18 @@ def compute_expected_clipped_moment(config, reservoir_geom_moment):
     reservoir_geom_moment : float
         Total geometric moment on the fault, D (m^3)
 
+    quadrature : (M_array, dM, P_normalized), optional
+        Magnitude density to average over (default: the unconditional G-R law;
+        pass the tilted law's pdf at the reference so the law is not ignored)
+
     Returns:
     --------
     expected_clipped_moment : float (m^3)
     """
-    M_array, dM, P_normalized = _gr_quadrature(config)
+    if quadrature is None:
+        M_array, dM, P_normalized = _gr_quadrature(config)
+    else:
+        M_array, dM, P_normalized = quadrature
     geom_moment_array = magnitude_to_seismic_moment(M_array) / config.shear_modulus_Pa
     fault_area_m2 = config.n_elements * config.element_area_m2
     rupture_area_m2 = np.minimum(10 ** (M_array - 3.99) * 1e6, fault_area_m2)
@@ -239,6 +247,84 @@ def omori_branching_ratio(config, dt):
     k_max = omori_lag_steps(config, dt)
     kernel_sum = sum(omori_step_rate(1.0, k, dt, config) * dt for k in range(1, k_max + 1))
     return K_mean * kernel_sum
+
+
+def omori_parent_rates(event_history, current_time, dt, config):
+    """
+    Per-parent Omori step rates under the Bath split
+
+    Returns (parent_idx, rates): indices into event_history of the parents
+    that can still produce an aftershock above M_min (magnitude >= M_min +
+    omori_bath_dM) and are inside the Omori window, with their step-averaged
+    rate (events/yr; K scaled by omori_bath_K_scale). Also frees the spatial
+    activation kernel of expired non-afterslip events, as
+    afterslip.compute_aftershock_spatial_weights does on the aggregated path
+    (which the split bypasses).
+    """
+    integrated = getattr(config, "omori_integrate_over_step", False)
+    k_max = omori_lag_steps(config, dt)
+    M_floor = config.M_min + config.omori_bath_dM
+    K_scale = getattr(config, "omori_bath_K_scale", 1.0)
+    c, p_om = config.omori_c_years, config.omori_p
+    parents, rates = [], []
+    for idx, event in enumerate(event_history):
+        dt_event = current_time - event["time"]
+        if integrated:
+            lag = int(round(dt_event / dt))
+            active = 1 <= lag <= k_max
+            expired = lag > k_max
+        else:
+            lag = 0
+            active = 0.0 < dt_event <= config.omori_duration_years
+            expired = dt_event > config.omori_duration_years
+        if (
+            expired
+            and event.get("spatial_activation") is not None
+            and event.get("afterslip_sequence_id") is None
+        ):
+            event["spatial_activation"] = None  # free expired kernels
+        if not active or event["magnitude"] < M_floor:
+            continue
+        K = omori_productivity(event["magnitude"], config) * K_scale
+        if integrated:
+            rate = omori_step_rate(K, lag, dt, config)
+        else:
+            rate = K / (dt_event + c) ** p_om
+        parents.append(idx)
+        rates.append(rate)
+    return np.array(parents, dtype=int), np.array(rates, dtype=float)
+
+
+def expected_moment_budget(config, law, dt, E_L):
+    """
+    Mean-field cascade moment budget under the Bath split
+
+    A loading event of magnitude M triggers n(M) = K(M) K_scale * sum_k kernel_k
+    children (only if M - dM >= M_min), each drawing G-R on [M_min, M - dM];
+    grandchildren likewise. With n_L = E_GR[n(M)], E_O the productivity-weighted
+    mean child moment and n_O the mean grandchildren per child, the moment
+    released per loading event including its cascade is
+        m_cascade = E_L + n_L E_O / (1 - n_O)
+    so that lambda_load = (1 - f_as) L_tot / m_cascade balances loading.
+    """
+    dM_bath = config.omori_bath_dM
+    K_scale = getattr(config, "omori_bath_K_scale", 1.0)
+    k_max = omori_lag_steps(config, dt)
+    kernel_sum = sum(omori_step_rate(1.0, k, dt, config) * dt for k in range(1, k_max + 1))
+    M, p = law.M, law.pgr  # loading law (parents)
+    # expected direct children of an event of magnitude x (any origin)
+    def n_of(x):
+        return np.where(x - dM_bath >= law.M_min_child,
+                        omori_productivity(x, config) * K_scale * kernel_sum, 0.0)
+    n_M = n_of(M)
+    eligible, mean_child, mean_offspring = law.child_curves(dM_bath, n_child=n_of(law.M_child))
+    n_L = float(law._integral(p * n_M))
+    E_O = float(law._integral(p * n_M * mean_child) / n_L) if n_L > 0 else 0.0
+    n_O = float(law._integral(p * n_M * mean_offspring) / n_L) if n_L > 0 else 0.0
+    n_O = min(n_O, 0.999)
+    m_cascade = E_L + n_L * E_O / (1.0 - n_O)
+    return {"E_L": E_L, "n_L": n_L, "E_O": E_O, "n_O": n_O,
+            "m_cascade": m_cascade, "kernel_sum": kernel_sum}
 
 
 def compute_rate_parameters(config):
@@ -427,13 +513,30 @@ def calibrate_rate_to_reservoir(config, m_current, slip_rate):
     T_s = getattr(config, "rate_saturation_years", 30.0)
     config._m_sat = np.maximum(slip_rate, 1e-12) * T_s
 
-    if getattr(config, "rate_mode", "legacy") != "moment_balance":
-        return config.C_rate_base
-
     ref_years = getattr(config, "deficit_reference_years", 0.0)
     D_ref = ref_years * L_tot if ref_years > 0 else D_0
 
-    if getattr(config, "rate_expected_moment", "gr") == "clipped":
+    # Deficit-weighted magnitude law and/or Bath split (None = legacy paths)
+    tilt_on = getattr(config, "magnitude_tilt_mu", 0.0) != 0.0
+    split_on = bool(getattr(config, "omori_split_enabled", False)) and config.omori_enabled
+    load_law_on = (getattr(config, "magnitude_load_M_min", 0.0) > config.M_min
+                   or getattr(config, "magnitude_load_b", 0.0) > 0)
+    law = TiltedGR(config, D_ref, slip_rate) if (tilt_on or split_on or load_law_on) else None
+    config._magnitude_law = law
+    config._omori_split = split_on
+
+    if getattr(config, "rate_mode", "legacy") != "moment_balance":
+        return config.C_rate_base
+
+    if law is not None:
+        M_grid, p_ref = law.pdf(0.0)
+        if getattr(config, "rate_expected_moment", "gr") == "clipped":
+            expected_moment = compute_expected_clipped_moment(
+                config, D_ref, quadrature=(M_grid, law.dM, p_ref)
+            )
+        else:
+            expected_moment = law.expected_moment(0.0)
+    elif getattr(config, "rate_expected_moment", "gr") == "clipped":
         expected_moment = compute_expected_clipped_moment(config, D_ref)
     else:
         expected_moment = compute_expected_moment_per_event(config)
@@ -443,12 +546,24 @@ def calibrate_rate_to_reservoir(config, m_current, slip_rate):
         f_as = 0.0
     f_as = min(max(f_as, 0.0), 0.95)
 
-    lambda_bar = (1.0 - f_as) * L_tot / expected_moment
-    n_branch = 0.0
-    if getattr(config, "rate_omori_branching_correction", False) and config.omori_enabled:
-        n_branch = omori_branching_ratio(config, config.time_step_years)
-        lambda_bar *= (1.0 - n_branch)
+    budget = None
+    if split_on:
+        # Cascade budget: aftershocks are Bath-capped, so they release far less
+        # than E[m]; the (1 - n_b) factor below would leave the reservoir 60% high
+        budget = expected_moment_budget(config, law, config.time_step_years, expected_moment)
+        lambda_bar = (1.0 - f_as) * L_tot / budget["m_cascade"]
+        n_branch = budget["n_L"]
+    else:
+        lambda_bar = (1.0 - f_as) * L_tot / expected_moment
+        n_branch = 0.0
+        if getattr(config, "rate_omori_branching_correction", False) and config.omori_enabled:
+            n_branch = omori_branching_ratio(config, config.time_step_years)
+            lambda_bar *= (1.0 - n_branch)
     config.omori_branching_used = n_branch
+    if budget is not None:
+        config.omori_bath_child_moment = budget["E_O"]
+        config.omori_bath_grandchild_branching = budget["n_O"]
+        config.expected_cascade_moment_per_event = budget["m_cascade"]
     rate_law = getattr(config, "rate_law", "power")
     if rate_law == "memory":
         state_ref = memory_reference_H(config)
@@ -475,8 +590,19 @@ def calibrate_rate_to_reservoir(config, m_current, slip_rate):
     print(f"  Reference deficit D_ref: {D_ref:.3e} m^3 ({D_ref / L_tot:.1f} yr of loading)")
     print(f"  Expected moment per event ({getattr(config, 'rate_expected_moment', 'gr')}): {expected_moment:.3e} m^3")
     print(f"  Afterslip release fraction f_as: {f_as:.2f}")
-    print(f"  lambda_bar = (1 - n_b) (1 - f_as) L_tot / E[m] = {lambda_bar:.4f} events/yr "
-          f"(loading term; branching n_b = {n_branch:.3f} -> total ~{lambda_bar / max(1 - n_branch, 1e-6):.3f}/yr)")
+    if budget is not None:
+        print(f"  Bath split: dM = {config.omori_bath_dM}, K_scale = {getattr(config, 'omori_bath_K_scale', 1.0)}; "
+              f"eligible branching n_L = {budget['n_L']:.4f}, child moment E_O = {budget['E_O']:.3e} m^3 "
+              f"({budget['E_O'] / expected_moment:.3f} E[m]), grandchild n_O = {budget['n_O']:.2e}")
+        print(f"  lambda_bar = (1 - f_as) L_tot / (E[m] + n_L E_O / (1 - n_O)) = {lambda_bar:.4f} events/yr "
+              f"(loading term; total with cascade ~{lambda_bar * (1 + budget['n_L'] / (1 - budget['n_O'])):.3f}/yr)")
+    else:
+        print(f"  lambda_bar = (1 - n_b) (1 - f_as) L_tot / E[m] = {lambda_bar:.4f} events/yr "
+              f"(loading term; branching n_b = {n_branch:.3f} -> total ~{lambda_bar / max(1 - n_branch, 1e-6):.3f}/yr)")
+    if law is not None:
+        print(law.describe())
+        kappa = getattr(config, "rate_size_coupling", 0.0)
+        print(f"  Rate-size coupling kappa = {kappa} (ratio clamp {getattr(config, 'rate_size_coupling_max', 3.0)})")
     print(f"  Controller target: {getattr(config, 'adaptive_correction_target', 'coupling')}, "
           f"deficit exponent nu = {getattr(config, 'deficit_exponent', 1.0)}")
     print(f"  Rate law: {rate_law}; reference state = {state_ref:.3f}; "
@@ -737,19 +863,43 @@ def earthquake_rate(
     if rate_law in ("memory", "saturating") and nu != 0.0 and config.deficit_reference > 0:
         lambda_loading *= (moment_deficit / config.deficit_reference) ** nu
 
+    # Deficit-weighted magnitude law: state, expected event size and the
+    # rate-size coupling lambda_load *= (E_GR / E[m | D])^kappa
+    law = getattr(config, "_magnitude_law", None)
+    tilt_theta = np.nan
+    expected_moment = np.nan
+    if law is not None and law.mu != 0.0:
+        ell = law.log_deficit(m_current, memory_h if rate_law == "memory" else None)
+        tilt_theta = float(law.theta(ell))
+        expected_moment = law.expected_moment(ell)
+        kappa = getattr(config, "rate_size_coupling", 0.0)
+        if kappa > 0.0:
+            R = getattr(config, "rate_size_coupling_max", 3.0)
+            ratio = min(max(law.E_gr / expected_moment, 1.0 / R), R)
+            lambda_loading *= ratio ** kappa
+
     # Steady background rate (external forcing independent of moment deficit)
     lambda_background = getattr(config, 'lambda_background', 0.0)
 
     # Aftershock rate (Omori-Utsu decay)
     lambda_aftershock = 0.0
     n_active_sequences = 0
+    omori_parents = None
+    omori_rates = None
 
     if (
         len(event_history) > 0
         and hasattr(config, "omori_enabled")
         and config.omori_enabled
     ):
-        if getattr(config, "omori_integrate_over_step", False):
+        if getattr(config, "_omori_split", False):
+            # Bath split: only parents that can still produce M >= M_min
+            omori_parents, omori_rates = omori_parent_rates(
+                event_history, current_time, dt_years, config
+            )
+            lambda_aftershock = float(np.sum(omori_rates))
+            n_active_sequences = int(omori_parents.size)
+        elif getattr(config, "omori_integrate_over_step", False):
             # Expected count over the step (t - dt, t], at integer grid lags.
             # Events created during the current step are not yet in
             # event_history, so lag 0 never occurs; the previous step's
@@ -805,6 +955,13 @@ def earthquake_rate(
         "moment_deficit": moment_deficit,
         "correction_factor": config.rate_correction_factor,
         "saturation": saturation,
+        "tilt_theta": tilt_theta,
+        "expected_moment": expected_moment,
+        "lambda_omori_eligible": lambda_aftershock if omori_rates is not None else np.nan,
     }
+    if omori_rates is not None:
+        # Runtime side channel for the origin draw (arrays: not written to HDF5)
+        components["omori_parents"] = omori_parents
+        components["omori_rates"] = omori_rates
 
     return lambda_t, components
